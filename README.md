@@ -40,7 +40,16 @@ nên dùng ngoại tuyến được.
 - **Vùng nhận dạng**: hiển thị khung chữ/bảng/hình/đường nối trên ảnh gốc để kiểm tra.
 - **Xuất văn bản**: TXT, Markdown (bảng dạng Markdown, sơ đồ dạng Mermaid), Word (.doc), HTML.
 
-## Cài đặt & chạy
+## Dùng ngay trên GitHub (GitHub Pages)
+
+App được tự động build và đăng lên GitHub Pages bởi workflow `.github/workflows/main.yml`
+mỗi khi đẩy mã lên nhánh chính. Địa chỉ: **https://silentword142.github.io/ORC-Claude/**
+
+Thiết lập một lần: vào **Settings → Pages → Build and deployment → Source**, chọn
+**GitHub Actions**. Sau đó vào tab **Actions**, chạy lại workflow "Deploy GitHub Pages"
+(hoặc đẩy một commit mới). Khi workflow xanh, mở địa chỉ trên là dùng được.
+
+## Cài đặt & chạy trên máy
 
 Yêu cầu: Node.js 18+ (chỉ cần khi build; người dùng cuối chỉ cần trình duyệt).
 
