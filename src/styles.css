@@ -60,8 +60,14 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.row select { padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); }
+.row select { max-width: 62%; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); }
 .check { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.subopts { display: flex; flex-direction: column; gap: 8px; }
+.subopts[hidden] { display: none; }
+.stack-label { display: flex; flex-direction: column; gap: 4px; }
+.stack-label input { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); width: 100%; }
+.note { margin: 0; font-size: 12px; color: var(--muted); }
+.note a { color: var(--accent); }
 .check em { color: var(--muted); font-style: normal; font-size: 12px; }
 
 .pages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow: auto; }

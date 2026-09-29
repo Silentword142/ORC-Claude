@@ -15,7 +15,7 @@
       <img src="icon.svg" alt="" width="28" height="28" />
       <div>
         <h1>ORC Scanner</h1>
-        <p>Quét chữ, bảng &amp; sơ đồ · chạy 100% trên máy bạn · không dùng API AI</p>
+        <p>Quét chữ, bảng &amp; sơ đồ · offline miễn phí hoặc Claude AI chính xác cao</p>
       </div>
     </div>
     <div class="status" id="netStatus"></div>
@@ -32,6 +32,21 @@
 
       <section class="panel">
         <h2>Tùy chọn</h2>
+        <label class="row">Chế độ quét
+          <select id="optEngine">
+            <option value="local">Offline (miễn phí)</option>
+            <option value="claude">Claude AI</option>
+          </select>
+        </label>
+        <div id="claudeOpts" class="subopts" hidden>
+          <label class="stack-label">API key Anthropic
+            <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="check"><input type="checkbox" id="rememberKey" /> Ghi nhớ key trên máy này</label>
+          <label class="row">Mô hình <select id="optModel"></select></label>
+          <p class="note">Lấy key tại <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (tính phí theo lượt dùng, khác gói Claude Pro/Max). Ảnh trang được gửi thẳng từ trình duyệt tới Anthropic; key không gửi đi đâu khác. Không bật "ghi nhớ" trên máy dùng chung.</p>
+        </div>
+        <div id="localOpts" class="subopts">
         <label class="row">Ngôn ngữ
           <select id="optLang">
             <option value="vie+eng" selected>Tiếng Việt + Anh</option>
@@ -44,6 +59,7 @@
         <label class="check"><input type="checkbox" id="optDeskew" checked /> Tự chỉnh ảnh nghiêng</label>
         <label class="check"><input type="checkbox" id="optCellOcr" /> OCR riêng từng ô bảng <em>(chậm hơn, chính xác hơn)</em></label>
         <label class="check"><input type="checkbox" id="optForceOcr" /> PDF: bỏ qua lớp chữ, luôn OCR</label>
+        </div>
       </section>
 
       <section class="panel">

@@ -19,6 +19,26 @@ không gửi tài liệu ra ngoài, dùng được cả khi **ngoại tuyến**.
 được trên mọi PC. Sau lần mở đầu tiên, service worker lưu đệm toàn bộ (kể cả dữ liệu ngôn ngữ)
 nên dùng ngoại tuyến được.
 
+## Hai chế độ quét
+
+| | **Offline (mặc định)** | **Claude AI** |
+|---|---|---|
+| Độ chính xác | Khá với tài liệu in rõ; dễ sai với ảnh chụp, chữ nhỏ, dấu tiếng Việt, bố cục phức tạp | Rất cao: đọc đúng dấu, chữ viết tay, bảng phức tạp, sơ đồ, biểu đồ |
+| Chi phí | Miễn phí | Tính theo lượt dùng API: ~0,04–0,15 USD/trang với Opus 5.5, rẻ hơn khoảng một nửa với Sonnet 5.5 (app hiển thị chi phí ước tính sau khi quét) |
+| Dữ liệu | Không rời khỏi máy | Ảnh trang được gửi tới Anthropic |
+| Mạng | Dùng được khi mất mạng | Cần mạng |
+
+**Dùng chế độ Claude AI:**
+1. Tạo API key tại [console.anthropic.com](https://console.anthropic.com/settings/keys) và nạp credit.
+   Lưu ý: gói **Claude Pro/Max** (claude.ai) **không** dùng được cho ứng dụng bên ngoài; cần API key riêng.
+2. Trong app chọn **Chế độ quét → Claude AI**, dán API key, chọn mô hình, rồi bấm **Bắt đầu quét**.
+3. Key chỉ được gửi tới `api.anthropic.com` từ trình duyệt của bạn (app không có máy chủ riêng). Chỉ tick
+   "Ghi nhớ key" trên máy cá nhân; có thể đặt giới hạn chi tiêu cho key trong Console.
+
+Claude trả về cấu trúc JSON (tiêu đề, đoạn văn, bảng có ô gộp, sơ đồ với các nút và đường nối); app dựng
+lại thành bảng sửa được, SVG, draw.io, Mermaid, Word… giống chế độ offline. Vị trí các khối trên trang
+là xấp xỉ. Với PDF có lớp chữ, chữ đó được gửi kèm để Claude đối chiếu số liệu và chính tả.
+
 ## Tính năng
 
 - **Đầu vào**: PNG, JPG, WEBP, BMP, GIF, AVIF, SVG · PDF (nhiều trang) · DOCX · TXT/MD/CSV/JSON · HTML.
@@ -95,7 +115,7 @@ Các thuật toán lõi là JavaScript thuần, không phụ thuộc trình duy�
 
 ```bash
 npm test             # kiểm thử thuật toán trên ảnh tổng hợp (bảng, ô gộp, sơ đồ, góc nghiêng)
-npm run build && npm run test:e2e   # đầu-cuối trong Chromium với ảnh PNG và PDF mẫu
+npm run build && npm run test:e2e   # đầu-cuối trong Chromium (PNG, PDF mẫu; chế độ Claude với API giả lập)
 ```
 
 ## Giới hạn

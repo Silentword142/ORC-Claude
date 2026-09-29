@@ -152,7 +152,7 @@ export function diagramToMermaid(d) {
 
 export function pageToMarkdown(result) {
   return result.blocks.map((b) => {
-    if (b.type === 'para') return b.text;
+    if (b.type === 'para') return b.kind === 'heading' ? `${'#'.repeat(Math.min(6, Math.max(1, b.level || 1)))} ${b.text}` : b.text;
     if (b.type === 'table') return tableToMarkdown(b.table);
     return '```mermaid\n' + diagramToMermaid(b.diagram) + '\n```';
   }).join('\n\n');
@@ -170,6 +170,7 @@ export function pageToPlainText(result) {
 /** HTML "dòng chảy" (dùng cho xuất Word/HTML) */
 export function pageToFlowHTML(result) {
   return result.blocks.map((b) => {
+    if (b.type === 'para' && b.kind === 'heading') { const h = Math.min(6, Math.max(1, b.level || 1)); return `<h${h}>${esc(b.text)}</h${h}>`; }
     if (b.type === 'para') return `<p>${esc(b.text).replace(/\n/g, '<br>')}</p>`;
     if (b.type === 'table') return tableToHTML(b.table, { style: 'border-collapse:collapse' }).replace(/<td/g, '<td style="border:1px solid #444;padding:4px 6px;vertical-align:top"');
     return diagramToSVG(b.diagram);
@@ -188,7 +189,7 @@ export function reconstructPageHTML(result) {
     } else if (b.type === 'table') {
       const t = b.table;
       const cells = t.cells.map((c) => {
-        const border = t.kind === 'ruled' ? 'border:1.5px solid #333;' : '';
+        const border = t.kind === 'borderless' ? '' : 'border:1.5px solid #333;';
         const lines = c.text.split('\n').length || 1;
         const fs = Math.max(9, Math.min((result.textHeight || 24) * 0.8, ((c.y1 - c.y0) / lines) * 0.6));
         return `<div class="rc" style="left:${c.x0 - t.bbox.x0}px;top:${c.y0 - t.bbox.y0}px;width:${c.x1 - c.x0}px;height:${c.y1 - c.y0}px;${border}font-size:${fs.toFixed(0)}px">${esc(c.text).replace(/\n/g, '<br>')}</div>`;

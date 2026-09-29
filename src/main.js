@@ -1,11 +1,12 @@
 import './styles.css';
-import { analyzePage } from './core/analyze.js';
+import { analyzePage, buildLines } from './core/analyze.js';
 import {
   tableToHTML, tableToCSV, tableToMarkdown, diagramToSVG, diagramToDrawio, diagramToMermaid,
   pageToMarkdown, pageToPlainText, pageToFlowHTML, reconstructPageHTML, RECON_CSS, esc,
 } from './core/export.js';
 import { ocrPage, ocrRegion, setOcrLogger } from './ocr.js';
 import { fileKind, imagePage, pdfPages, docxDocument, htmlDocument, deskewCanvas } from './loaders.js';
+import { scanWithClaude, MODELS } from './claude.js';
 
 const $ = (s) => document.querySelector(s);
 const state = { items: [], running: false, seq: 0 };
@@ -72,13 +73,38 @@ function renderList() {
     ul.innerHTML = '<li class="empty">Chưa có tệp nào.</li>';
   } else {
     const label = { pending: 'chờ', run: 'đang quét…', done: 'xong', err: 'lỗi' };
-    ul.innerHTML = state.items.map((it) => `<li><span class="name" title="${esc(it.name)}">${it.type === 'doc' ? '📄 ' : ''}${esc(it.name)}</span><span class="st ${it.status}">${it.status === 'done' && it.result ? `xong${it.result.meanConfidence != null && it.result.source === 'ocr' ? ` · ${it.result.meanConfidence}%` : it.result.source === 'pdf-text' ? ' · lớp chữ PDF' : ''}` : label[it.status]}</span></li>`).join('');
+    ul.innerHTML = state.items.map((it) => `<li><span class="name" title="${esc(it.name)}">${it.type === 'doc' ? '📄 ' : ''}${esc(it.name)}</span><span class="st ${it.status}">${it.status === 'done' && it.result ? `xong${it.result.meanConfidence != null && it.result.source === 'ocr' ? ` · ${it.result.meanConfidence}%` : it.result.source === 'pdf-text' ? ' · lớp chữ PDF' : it.result.source === 'claude' ? ' · Claude' : ''}` : label[it.status]}</span></li>`).join('');
   }
   $('#btnRun').disabled = state.running || !state.items.some((it) => it.type === 'page' && it.status !== 'done');
 }
 
 // ---------- Chạy nhận dạng ----------
+// ---------- Bộ nhận dạng: offline (Tesseract) hoặc Claude ----------
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* bỏ qua */ } },
+};
+$('#optModel').innerHTML = Object.entries(MODELS).map(([id, m]) => `<option value="${id}">${m.label}</option>`).join('');
+$('#optEngine').value = store.get('orc.engine') || 'local';
+$('#optModel').value = store.get('orc.model') || 'claude-opus-5-5';
+if (store.get('orc.apiKey')) { $('#apiKey').value = store.get('orc.apiKey'); $('#rememberKey').checked = true; }
+const syncEngine = () => {
+  const claude = $('#optEngine').value === 'claude';
+  $('#claudeOpts').hidden = !claude;
+  $('#localOpts').hidden = claude;
+  store.set('orc.engine', $('#optEngine').value);
+};
+syncEngine();
+$('#optEngine').addEventListener('change', syncEngine);
+$('#optModel').addEventListener('change', () => store.set('orc.model', $('#optModel').value));
+const syncKey = () => store.set('orc.apiKey', $('#rememberKey').checked && $('#apiKey').value.trim() ? $('#apiKey').value.trim() : null);
+$('#apiKey').addEventListener('change', syncKey);
+$('#rememberKey').addEventListener('change', syncKey);
+
 const opt = () => ({
+  engine: $('#optEngine').value,
+  apiKey: $('#apiKey').value.trim(),
+  model: $('#optModel').value,
   langs: $('#optLang').value,
   tables: $('#optTables').checked,
   diagrams: $('#optDiagrams').checked,
@@ -93,6 +119,11 @@ async function run() {
   if (state.running) return;
   state.running = true;
   const o = opt();
+  if (o.engine === 'claude' && !o.apiKey) {
+    state.running = false;
+    $('#apiKey').focus();
+    return toast('Hãy nhập API key của Anthropic để dùng chế độ Claude.');
+  }
   const todo = state.items.filter((it) => it.type === 'page' && it.status !== 'done');
   const prog = $('#progress');
   prog.hidden = false;
@@ -106,6 +137,45 @@ async function run() {
     else if (m.status && /load|init/.test(m.status)) setProg(`Khởi tạo OCR: ${m.status}${m.progress ? ` ${Math.round(m.progress * 100)}%` : ''}`);
   });
   renderList();
+  let cost = 0;
+  const finish = (it) => { done++; frac = 0; setProg(); renderList(); renderResults(); void it; };
+  const saveImage = async (it, canvas) => {
+    it.imageUrl && URL.revokeObjectURL(it.imageUrl);
+    it.imageUrl = URL.createObjectURL(await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.85)));
+  };
+
+  if (o.engine === 'claude') {
+    // Gửi song song tối đa 3 trang để nhanh hơn
+    let next = 0;
+    const worker = async () => {
+      while (next < todo.length) {
+        const it = todo[next++];
+        it.status = 'run'; renderList();
+        setProg(`Claude đang đọc ${it.name}…`);
+        try {
+          const { canvas, words } = await it.page.render({ forceOcr: false });
+          const pdfText = words ? buildLines(words).map((l) => l.words.map((w) => w.text).join(' ')).join('\n') : null;
+          const r = await scanWithClaude(canvas, { apiKey: o.apiKey, model: o.model, pdfText });
+          it.result = r.result;
+          cost += r.costUsd;
+          await saveImage(it, canvas);
+          it.status = 'done';
+        } catch (err) {
+          console.error(err);
+          it.status = 'err';
+          toast(`Lỗi khi quét ${it.name}: ${err.message}`);
+        }
+        finish(it);
+        setProg(`Đã xong ${done}/${todo.length} trang · chi phí ước tính ≈ $${cost.toFixed(3)}`);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, todo.length) }, worker));
+    setProg(`Hoàn tất ${todo.length} trang · chi phí ước tính ≈ $${cost.toFixed(3)} (Claude ${MODELS[o.model]?.label || o.model})`);
+    state.running = false;
+    renderList();
+    return;
+  }
+
   for (const it of todo) {
     it.status = 'run'; frac = 0; renderList();
     const tag = `[${done + 1}/${todo.length}] ${it.name}`;
@@ -130,22 +200,21 @@ async function run() {
         },
       );
       it.result.textHeight = medianHeight(it.result.words);
-      it.imageUrl && URL.revokeObjectURL(it.imageUrl);
-      it.imageUrl = URL.createObjectURL(await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.85)));
+      await saveImage(it, canvas);
       it.status = 'done';
     } catch (err) {
       console.error(err);
       it.status = 'err';
       toast(`Lỗi khi quét ${it.name}: ${err.message}`);
     }
-    done++; frac = 0; setProg();
-    renderList();
-    renderResults();
+    finish(it);
   }
   setProg(`Hoàn tất ${todo.length} trang.`);
   state.running = false;
   renderList();
 }
+
+const diagramsOf = (r) => (r ? r.diagrams || (r.diagram ? [r.diagram] : []) : []);
 
 function medianHeight(words) {
   const h = words.map((w) => w.y1 - w.y0).sort((a, b) => a - b);
@@ -235,13 +304,12 @@ function excelHTML(t) {
 }
 
 function renderDiagrams() {
-  const list = doneItems().filter((it) => it.result?.diagram);
+  const list = doneItems().flatMap((it) => diagramsOf(it.result).map((d) => ({ it, d })));
   $('#cntDiagrams').textContent = list.length;
   const box = $('#diagramsOut');
   if (!list.length) { box.innerHTML = '<p class="hint">Chưa có sơ đồ nào. Hỗ trợ lưu đồ/sơ đồ khối: hình chữ nhật, bo góc, elip, thoi, bình hành, mũi tên và đường gấp khúc.</p>'; return; }
   box.innerHTML = '';
-  for (const it of list) {
-    const d = it.result.diagram;
+  for (const { it, d } of list) {
     const svg = diagramToSVG(d);
     const mermaid = diagramToMermaid(d);
     const card = document.createElement('div');
@@ -301,7 +369,8 @@ async function renderOverlay() {
     const r = it.result;
     const card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML = `<h3>${esc(it.name)}<small>${r.source === 'pdf-text' ? 'lớp chữ PDF' : `OCR · độ tin cậy TB ${r.meanConfidence ?? '-'}%`}</small></h3>`;
+    card.innerHTML = `<h3>${esc(it.name)}<small>${r.source === 'pdf-text' ? 'lớp chữ PDF' : r.source === 'claude' ? 'Claude AI · vị trí khối là xấp xỉ' : `OCR · độ tin cậy TB ${r.meanConfidence ?? '-'}%`}</small></h3>`;
+
     const cv = document.createElement('canvas');
     cv.className = 'overlay-canvas';
     const s = Math.min(1, 1600 / r.width);
@@ -314,11 +383,13 @@ async function renderOverlay() {
     ctx.scale(s, s);
     const box2 = (b, color, lw = 2) => { ctx.strokeStyle = color; ctx.lineWidth = lw / s; ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); };
     for (const w of r.words) box2(w, 'rgba(59,130,246,.7)', 1);
+    // Chế độ Claude không có khung từng từ: vẽ khung đoạn văn
+    for (const b of r.blocks) if (r.source === 'claude' && b.type === 'para') box2(b.bbox, 'rgba(59,130,246,.8)', 2);
     for (const t of r.tables) { box2(t.bbox, '#16a34a', 3); t.cells.forEach((c) => box2(c, 'rgba(22,163,74,.5)', 1)); }
-    if (r.diagram) {
-      for (const sh of r.diagram.shapes) box2(sh, '#f59e0b', 3);
+    for (const dg of diagramsOf(r)) {
+      for (const sh of dg.shapes) box2(sh, '#f59e0b', 3);
       ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 3 / s;
-      for (const c of r.diagram.connectors) {
+      for (const c of dg.connectors) {
         ctx.beginPath();
         c.points.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
         ctx.stroke();
@@ -409,7 +480,13 @@ async function svgToPng(svg) {
 }
 
 // Trạng thái ngoại tuyến + service worker (bản build)
-function netStatus() { $('#netStatus').textContent = navigator.onLine ? 'Dữ liệu không rời khỏi máy bạn' : 'Đang ngoại tuyến — vẫn dùng được'; }
+function netStatus() {
+  const claude = $('#optEngine').value === 'claude';
+  $('#netStatus').textContent = claude
+    ? (navigator.onLine ? 'Chế độ Claude: ảnh được gửi tới Anthropic' : 'Ngoại tuyến — chế độ Claude cần mạng')
+    : (navigator.onLine ? 'Chế độ offline: dữ liệu không rời khỏi máy bạn' : 'Đang ngoại tuyến — vẫn dùng được');
+}
+$('#optEngine').addEventListener('change', netStatus);
 window.addEventListener('online', netStatus);
 window.addEventListener('offline', netStatus);
 netStatus();
