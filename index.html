@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ORC Scanner</title>
+  <meta name="description" content="Quét văn bản, bảng và sơ đồ từ ảnh, PDF, DOCX ngay trong trình duyệt — không dùng API AI, không gửi dữ liệu ra ngoài." />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#2563eb" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="28" height="28" />
+      <div>
+        <h1>ORC Scanner</h1>
+        <p>Quét chữ, bảng &amp; sơ đồ · chạy 100% trên máy bạn · không dùng API AI</p>
+      </div>
+    </div>
+    <div class="status" id="netStatus"></div>
+  </header>
+
+  <main class="layout">
+    <aside class="side">
+      <label class="drop" id="drop" tabindex="0">
+        <input type="file" id="fileInput" multiple accept="image/*,.pdf,.docx,.txt,.md,.csv,.tsv,.json,.html,.htm,.xml" hidden />
+        <strong>Kéo thả tệp vào đây</strong>
+        <span>hoặc bấm để chọn · dán ảnh bằng Ctrl+V</span>
+        <small>Ảnh (PNG, JPG, WEBP, BMP…), PDF, DOCX, TXT, HTML</small>
+      </label>
+
+      <section class="panel">
+        <h2>Tùy chọn</h2>
+        <label class="row">Ngôn ngữ
+          <select id="optLang">
+            <option value="vie+eng" selected>Tiếng Việt + Anh</option>
+            <option value="vie">Tiếng Việt</option>
+            <option value="eng">Tiếng Anh</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="optTables" checked /> Phân tích bảng</label>
+        <label class="check"><input type="checkbox" id="optDiagrams" checked /> Phân tích sơ đồ / lưu đồ</label>
+        <label class="check"><input type="checkbox" id="optDeskew" checked /> Tự chỉnh ảnh nghiêng</label>
+        <label class="check"><input type="checkbox" id="optCellOcr" /> OCR riêng từng ô bảng <em>(chậm hơn, chính xác hơn)</em></label>
+        <label class="check"><input type="checkbox" id="optForceOcr" /> PDF: bỏ qua lớp chữ, luôn OCR</label>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Tệp &amp; trang</h2>
+          <button class="link" id="btnClear" type="button">Xóa hết</button>
+        </div>
+        <ul class="pages" id="pageList"><li class="empty">Chưa có tệp nào.</li></ul>
+        <button class="primary" id="btnRun" type="button" disabled>Bắt đầu quét</button>
+        <div class="progress" id="progress" hidden>
+          <div class="bar"><span id="progressBar"></span></div>
+          <p id="progressText"></p>
+        </div>
+      </section>
+    </aside>
+
+    <section class="content">
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="text" class="active">Văn bản</button>
+        <button role="tab" data-tab="tables">Bảng <b id="cntTables">0</b></button>
+        <button role="tab" data-tab="diagrams">Sơ đồ <b id="cntDiagrams">0</b></button>
+        <button role="tab" data-tab="recon">Dựng lại trang</button>
+        <button role="tab" data-tab="overlay">Vùng nhận dạng</button>
+      </nav>
+
+      <div class="tab" data-panel="text">
+        <div class="toolbar">
+          <button type="button" data-act="copyText">Sao chép</button>
+          <button type="button" data-act="dlTxt">Tải .txt</button>
+          <button type="button" data-act="dlMd">Tải .md</button>
+          <button type="button" data-act="dlDoc">Tải Word (.doc)</button>
+          <button type="button" data-act="dlHtml">Tải .html</button>
+          <span class="meta" id="textMeta"></span>
+        </div>
+        <textarea id="textOut" spellcheck="false" placeholder="Kết quả nhận dạng sẽ hiện ở đây. Bạn có thể sửa trực tiếp."></textarea>
+      </div>
+
+      <div class="tab" data-panel="tables" hidden>
+        <div id="tablesOut" class="stack"><p class="hint">Chưa có bảng nào.</p></div>
+      </div>
+
+      <div class="tab" data-panel="diagrams" hidden>
+        <div id="diagramsOut" class="stack"><p class="hint">Chưa có sơ đồ nào.</p></div>
+      </div>
+
+      <div class="tab" data-panel="recon" hidden>
+        <div class="toolbar">
+          <label class="check"><input type="checkbox" id="reconOverlay" /> Chồng lên ảnh gốc</label>
+          <button type="button" data-act="dlRecon">Tải trang dựng lại (.html)</button>
+        </div>
+        <div id="reconOut" class="stack"><p class="hint">Chưa có kết quả.</p></div>
+      </div>
+
+      <div class="tab" data-panel="overlay" hidden>
+        <div class="legend">
+          <span class="lg word">Chữ</span><span class="lg table">Bảng</span><span class="lg shape">Hình</span><span class="lg edge">Đường nối</span>
+        </div>
+        <div id="overlayOut" class="stack"><p class="hint">Chưa có kết quả.</p></div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

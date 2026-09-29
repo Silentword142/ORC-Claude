@@ -1,0 +1,26 @@
+{
+  "name": "orc-claude",
+  "version": "1.0.0",
+  "description": "Quét văn bản, bảng và sơ đồ từ ảnh/PDF/DOCX ngay trong trình duyệt - không dùng API AI",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "postinstall": "node scripts/copy-assets.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "node tests/e2e.mjs"
+  },
+  "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/vie": "^1.0.0",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.3.289",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1",
+    "vite": "^8.3.1"
+  }
+}
