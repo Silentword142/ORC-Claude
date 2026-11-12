@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ORC Scanner</title>
-  <meta name="description" content="Quét văn bản, bảng và sơ đồ từ ảnh, PDF, DOCX ngay trong trình duyệt — không dùng API AI, không gửi dữ liệu ra ngoài." />
+  <title>ORC MarkItDown Studio</title>
+  <meta name="description" content="Chuyển đổi mọi định dạng văn bản sang Markdown (.md) với độ chính xác cao bằng Microsoft MarkItDown, ORC Scanner & Claude AI." />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#2563eb" />
@@ -12,10 +12,10 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <img src="icon.svg" alt="" width="28" height="28" />
+      <img src="icon.svg" alt="" width="30" height="30" />
       <div>
-        <h1>ORC Scanner</h1>
-        <p>Quét chữ, bảng &amp; sơ đồ · offline miễn phí hoặc Claude AI chính xác cao</p>
+        <h1>ORC MarkItDown Studio</h1>
+        <p>Chuyển đổi mọi định dạng sang Markdown (.md) · Microsoft MarkItDown, ORC Scanner &amp; Claude AI</p>
       </div>
     </div>
     <div class="status" id="netStatus"></div>
@@ -23,52 +23,66 @@
 
   <main class="layout">
     <aside class="side">
+      <div class="desktop-row" id="desktopBar" hidden>
+        <button type="button" class="btn-desktop" id="btnDeskFile">📄 Chọn tệp từ máy</button>
+        <button type="button" class="btn-desktop" id="btnDeskFolder">📁 Chọn thư mục (Batch .md)</button>
+      </div>
+
       <label class="drop" id="drop" tabindex="0">
-        <input type="file" id="fileInput" multiple accept="image/*,.pdf,.docx,.txt,.md,.csv,.tsv,.json,.html,.htm,.xml" hidden />
+        <input type="file" id="fileInput" multiple accept="image/*,.pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.tsv,.json,.html,.htm,.xml,.epub,.rtf,.msg" hidden />
         <strong>Kéo thả tệp vào đây</strong>
         <span>hoặc bấm để chọn · dán ảnh bằng Ctrl+V</span>
-        <small>Ảnh (PNG, JPG, WEBP, BMP…), PDF, DOCX, TXT, HTML</small>
+        <small>Word, Excel, PowerPoint, PDF, HTML, EPub, RTF, CSV, Ảnh scan…</small>
       </label>
 
       <section class="panel">
-        <h2>Tùy chọn</h2>
-        <label class="row">Chế độ quét
+        <h2>Tùy chọn xử lý</h2>
+        <label class="row">Động cơ (Engine)
           <select id="optEngine">
-            <option value="local">Offline (miễn phí)</option>
-            <option value="claude">Claude AI</option>
+            <option value="hybrid" selected>🌟 Tự động Hybrid (Tối ưu nhất)</option>
+            <option value="markitdown">⚡ Microsoft MarkItDown</option>
+            <option value="claude">🧠 Claude AI Vision</option>
+            <option value="local">💻 Offline Tesseract WASM</option>
           </select>
         </label>
+
+        <div id="markitdownOpts" class="subopts" hidden>
+          <p class="note">⚡ Sử dụng engine chính thức của Microsoft để chuyển đổi trực tiếp các tệp Office (Word, Excel, PPT), PDF, HTML, EPub sang Markdown với độ chính xác cấu trúc 100%.</p>
+          <span class="engine-status" id="markitdownStatus">Đang kiểm tra service MarkItDown…</span>
+        </div>
+
         <div id="claudeOpts" class="subopts" hidden>
           <label class="stack-label">API key Anthropic
             <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false" />
           </label>
           <label class="check"><input type="checkbox" id="rememberKey" /> Ghi nhớ key trên máy này</label>
           <label class="row">Mô hình <select id="optModel"></select></label>
-          <p class="note">Lấy key tại <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (tính phí theo lượt dùng, khác gói Claude Pro/Max). Ảnh trang được gửi thẳng từ trình duyệt tới Anthropic; key không gửi đi đâu khác. Không bật "ghi nhớ" trên máy dùng chung.</p>
+          <p class="note">Lấy key tại <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (tính phí theo lượt dùng). Ảnh trang được gửi thẳng tới Anthropic.</p>
         </div>
+
         <div id="localOpts" class="subopts">
-        <label class="row">Ngôn ngữ
-          <select id="optLang">
-            <option value="vie+eng" selected>Tiếng Việt + Anh</option>
-            <option value="vie">Tiếng Việt</option>
-            <option value="eng">Tiếng Anh</option>
-          </select>
-        </label>
-        <label class="check"><input type="checkbox" id="optTables" checked /> Phân tích bảng</label>
-        <label class="check"><input type="checkbox" id="optDiagrams" checked /> Phân tích sơ đồ / lưu đồ</label>
-        <label class="check"><input type="checkbox" id="optDeskew" checked /> Tự chỉnh ảnh nghiêng</label>
-        <label class="check"><input type="checkbox" id="optCellOcr" /> OCR riêng từng ô bảng <em>(chậm hơn, chính xác hơn)</em></label>
-        <label class="check"><input type="checkbox" id="optForceOcr" /> PDF: bỏ qua lớp chữ, luôn OCR</label>
+          <label class="row">Ngôn ngữ
+            <select id="optLang">
+              <option value="vie+eng" selected>Tiếng Việt + Anh</option>
+              <option value="vie">Tiếng Việt</option>
+              <option value="eng">Tiếng Anh</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="optTables" checked /> Phân tích bảng (GFM Table)</label>
+          <label class="check"><input type="checkbox" id="optDiagrams" checked /> Phân tích sơ đồ (Mermaid)</label>
+          <label class="check"><input type="checkbox" id="optDeskew" checked /> Tự chỉnh ảnh nghiêng</label>
+          <label class="check"><input type="checkbox" id="optCellOcr" /> OCR riêng từng ô bảng <em>(chậm hơn, chính xác hơn)</em></label>
+          <label class="check"><input type="checkbox" id="optForceOcr" /> PDF: bỏ qua lớp chữ, luôn OCR</label>
         </div>
       </section>
 
       <section class="panel">
         <div class="panel-head">
-          <h2>Tệp &amp; trang</h2>
+          <h2>Tệp &amp; danh sách</h2>
           <button class="link" id="btnClear" type="button">Xóa hết</button>
         </div>
         <ul class="pages" id="pageList"><li class="empty">Chưa có tệp nào.</li></ul>
-        <button class="primary" id="btnRun" type="button" disabled>Bắt đầu quét</button>
+        <button class="primary" id="btnRun" type="button" disabled>Bắt đầu chuyển đổi</button>
         <div class="progress" id="progress" hidden>
           <div class="bar"><span id="progressBar"></span></div>
           <p id="progressText"></p>
@@ -78,33 +92,55 @@
 
     <section class="content">
       <nav class="tabs" role="tablist">
-        <button role="tab" data-tab="text" class="active">Văn bản</button>
+        <button role="tab" data-tab="markdown" class="active">Markdown (.md) ✨</button>
+        <button role="tab" data-tab="text">Văn bản thuần</button>
         <button role="tab" data-tab="tables">Bảng <b id="cntTables">0</b></button>
         <button role="tab" data-tab="diagrams">Sơ đồ <b id="cntDiagrams">0</b></button>
         <button role="tab" data-tab="recon">Dựng lại trang</button>
         <button role="tab" data-tab="overlay">Vùng nhận dạng</button>
       </nav>
 
-      <div class="tab" data-panel="text">
+      <!-- Tab Markdown chuyên biệt -->
+      <div class="tab" data-panel="markdown">
+        <div class="toolbar">
+          <button type="button" data-act="copyMd" class="btn-accent">📋 Sao chép Markdown</button>
+          <button type="button" data-act="saveMd">💾 Lưu file .md</button>
+          <button type="button" data-act="saveBatchMd" id="btnSaveBatch" hidden>⚡ Lưu tất cả cạnh file gốc</button>
+          <div class="view-toggle">
+            <button type="button" id="btnMdPreview" class="toggle-btn active">Xem trước</button>
+            <button type="button" id="btnMdSource" class="toggle-btn">Mã nguồn</button>
+          </div>
+          <span class="meta" id="mdMeta"></span>
+        </div>
+        <div class="md-container">
+          <div id="mdRendered" class="markdown-body"></div>
+          <textarea id="mdSource" spellcheck="false" hidden placeholder="Nội dung Markdown sẽ hiển thị ở đây."></textarea>
+        </div>
+      </div>
+
+      <!-- Tab văn bản thuần -->
+      <div class="tab" data-panel="text" hidden>
         <div class="toolbar">
           <button type="button" data-act="copyText">Sao chép</button>
           <button type="button" data-act="dlTxt">Tải .txt</button>
-          <button type="button" data-act="dlMd">Tải .md</button>
           <button type="button" data-act="dlDoc">Tải Word (.doc)</button>
           <button type="button" data-act="dlHtml">Tải .html</button>
           <span class="meta" id="textMeta"></span>
         </div>
-        <textarea id="textOut" spellcheck="false" placeholder="Kết quả nhận dạng sẽ hiện ở đây. Bạn có thể sửa trực tiếp."></textarea>
+        <textarea id="textOut" spellcheck="false" placeholder="Kết quả nhận dạng sẽ hiện ở đây."></textarea>
       </div>
 
+      <!-- Tab bảng biểu -->
       <div class="tab" data-panel="tables" hidden>
         <div id="tablesOut" class="stack"><p class="hint">Chưa có bảng nào.</p></div>
       </div>
 
+      <!-- Tab sơ đồ -->
       <div class="tab" data-panel="diagrams" hidden>
         <div id="diagramsOut" class="stack"><p class="hint">Chưa có sơ đồ nào.</p></div>
       </div>
 
+      <!-- Tab dựng lại trang -->
       <div class="tab" data-panel="recon" hidden>
         <div class="toolbar">
           <label class="check"><input type="checkbox" id="reconOverlay" /> Chồng lên ảnh gốc</label>
@@ -113,6 +149,7 @@
         <div id="reconOut" class="stack"><p class="hint">Chưa có kết quả.</p></div>
       </div>
 
+      <!-- Tab vùng nhận dạng -->
       <div class="tab" data-panel="overlay" hidden>
         <div class="legend">
           <span class="lg word">Chữ</span><span class="lg table">Bảng</span><span class="lg shape">Hình</span><span class="lg edge">Đường nối</span>

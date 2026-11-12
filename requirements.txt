@@ -1,0 +1,7 @@
+markitdown[all]>=0.1.9
+openpyxl>=3.1.5
+python-docx>=1.0.2
+python-pptx>=1.0.2
+pypdfium2>=5.15.2
+pdfminer-six>=20240706
+mammoth>=1.8.0

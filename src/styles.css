@@ -142,6 +142,46 @@ pre.code { margin: 0; padding: 10px; background: var(--surface-2); border-radius
 
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 10; }
 
+/* Desktop controls */
+.desktop-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn-desktop {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 12.5px; font-weight: 500; text-align: center;
+  transition: background .15s, border-color .15s;
+}
+.btn-desktop:hover { background: var(--surface); border-color: var(--accent); }
+
+/* Buttons & Toggles */
+.btn-accent { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+.view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; margin-left: 8px; }
+.toggle-btn { border: none; border-radius: 0; background: var(--surface); padding: 5px 12px; font-size: 12.5px; color: var(--muted); }
+.toggle-btn.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
+
+.engine-status { font-size: 11.5px; color: var(--ok); margin-top: 4px; display: block; }
+.engine-status.err { color: var(--err); }
+
+/* Markdown container & body */
+.md-container { flex: 1; display: flex; flex-direction: column; min-height: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.markdown-body { flex: 1; padding: 24px; overflow: auto; line-height: 1.7; font-size: 14.5px; color: var(--text); }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-top: 24px; margin-bottom: 12px; }
+.markdown-body h1:first-child { margin-top: 0; }
+.markdown-body p { margin: 10px 0; }
+.markdown-body code { background: var(--surface-2); padding: 2px 6px; border-radius: 4px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.markdown-body pre { background: var(--surface-2); padding: 12px; border-radius: 8px; overflow: auto; border: 1px solid var(--border); }
+.markdown-body pre code { background: none; padding: 0; }
+.markdown-body blockquote { border-left: 4px solid var(--accent); margin: 12px 0; padding-left: 14px; color: var(--muted); }
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 13.5px; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+.markdown-body th { background: var(--surface-2); font-weight: 600; }
+.markdown-body ul, .markdown-body ol { padding-left: 24px; margin: 10px 0; }
+.markdown-body img { max-width: 100%; border-radius: 6px; border: 1px solid var(--border); }
+
+#mdSource {
+  flex: 1; width: 100%; height: 100%; min-height: 400px; border: none; padding: 18px;
+  background: var(--surface); color: var(--text); resize: none; outline: none;
+  font: 14px/1.6 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap;
+}
+
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; }
   .side { border-right: none; border-bottom: 1px solid var(--border); }

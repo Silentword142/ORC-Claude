@@ -10,11 +10,18 @@ const PDF_BASE = new URL(import.meta.env.BASE_URL + 'pdfjs/', location.href).hre
 const IMAGE_RE = /\.(png|jpe?g|webp|bmp|gif|avif|svg)$/i;
 const TEXT_RE = /\.(txt|md|csv|tsv|json|xml|log|ini|yaml|yml)$/i;
 const HTML_RE = /\.(html?|xhtml)$/i;
+const OFFICE_DOCX = /\.docx?$/i;
+const OFFICE_EXCEL = /\.(xlsx?|ods)$/i;
+const OFFICE_PPT = /\.(pptx?|odp)$/i;
+const EBOOK_RTF = /\.(epub|rtf|msg)$/i;
 
 export function fileKind(file) {
   const n = file.name || '';
   if (file.type === 'application/pdf' || /\.pdf$/i.test(n)) return 'pdf';
-  if (/\.docx$/i.test(n)) return 'docx';
+  if (OFFICE_DOCX.test(n)) return 'docx';
+  if (OFFICE_EXCEL.test(n)) return 'excel';
+  if (OFFICE_PPT.test(n)) return 'powerpoint';
+  if (EBOOK_RTF.test(n)) return 'ebook';
   if (file.type.startsWith('image/') || IMAGE_RE.test(n)) return 'image';
   if (HTML_RE.test(n) || file.type === 'text/html') return 'html';
   if (file.type.startsWith('text/') || TEXT_RE.test(n)) return 'text';
@@ -145,7 +152,55 @@ function textItemsToWords(items, viewport) {
 }
 
 /** DOCX: chuyển sang HTML (giữ bảng) + OCR các ảnh nhúng */
+/** Gọi Microsoft MarkItDown thông qua Electron IPC hoặc local HTTP service */
+export async function convertWithMarkItDown(file) {
+  const filePath = file.path || file.name;
+  // 1. Thử qua Electron API nếu có
+  if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.convertWithMarkItDown) {
+    if (file.path) {
+      const res = await window.electronAPI.convertWithMarkItDown(file.path);
+      if (res && res.success) return res;
+      if (res && res.error) throw new Error(res.error);
+    }
+  }
+
+  // 2. Thử qua Local HTTP server MarkItDown
+  try {
+    const resp = await fetch('http://127.0.0.1:49152/convert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data && data.success) return data;
+    }
+  } catch (_) {
+    // Service chưa bật hoặc không thể kết nối
+  }
+
+  return null;
+}
+
+/** DOCX: chuyển sang Markdown (giữ bảng, heading, in đậm/nghiêng) + OCR các ảnh nhúng */
 export async function docxDocument(file) {
+  // Thử MarkItDown trước nếu có
+  try {
+    const mRes = await convertWithMarkItDown(file);
+    if (mRes && mRes.markdown) {
+      return {
+        html: `<pre class="md-raw">${esc(mRes.markdown)}</pre>`,
+        text: mRes.markdown,
+        markdown: mRes.markdown,
+        tables: [],
+        pages: []
+      };
+    }
+  } catch (e) {
+    console.warn('[Docx MarkItDown fallback]:', e.message);
+  }
+
+  // Fallback: Mammoth chuyển sang HTML rồi dịch sang Markdown
   const mod = await import('mammoth/mammoth.browser.min.js');
   const mammoth = mod.default || mod;
   const { value: html } = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
@@ -156,6 +211,7 @@ export async function htmlDocument(html, name) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   doc.querySelectorAll('script,style,iframe,object,embed').forEach((e) => e.remove());
   const tables = [...doc.querySelectorAll('table')].map(htmlTableToTable);
+  const markdown = htmlToMarkdown(doc.body);
   const pages = [];
   let k = 0;
   for (const img of doc.querySelectorAll('img')) {
@@ -164,10 +220,132 @@ export async function htmlDocument(html, name) {
     const blob = await (await fetch(src)).blob();
     pages.push(await imagePage(blob, `${name} — ảnh ${++k}`));
   }
-  return { html: doc.body.innerHTML, text: htmlToText(doc.body), tables, pages };
+  return { html: doc.body.innerHTML, text: htmlToText(doc.body), markdown, tables, pages };
 }
 
 const BLOCK = /^(P|DIV|H[1-6]|LI|TR|BR|PRE|BLOCKQUOTE|SECTION|ARTICLE|HEADER|FOOTER|TABLE|UL|OL)$/;
+
+/** Chuyển đổi cây DOM HTML sang Markdown chuẩn GitHub Flavored Markdown (GFM) */
+export function htmlToMarkdown(root) {
+  function walk(node, depth = 0) {
+    if (node.nodeType === 3) {
+      return node.nodeValue.replace(/\s+/g, ' ');
+    }
+    if (node.nodeType !== 1) return '';
+
+    const tag = node.tagName.toUpperCase();
+
+    if (tag === 'BR') return '\n';
+    if (tag === 'HR') return '\n\n---\n\n';
+
+    if (/^H[1-6]$/.test(tag)) {
+      const lvl = parseInt(tag[1], 10);
+      const text = Array.from(node.childNodes).map((c) => walk(c, depth)).join('').trim();
+      return text ? `\n\n${'#'.repeat(lvl)} ${text}\n\n` : '';
+    }
+
+    if (tag === 'P') {
+      const text = Array.from(node.childNodes).map((c) => walk(c, depth)).join('').trim();
+      return text ? `\n\n${text}\n\n` : '';
+    }
+
+    if (tag === 'B' || tag === 'STRONG') {
+      const text = Array.from(node.childNodes).map((c) => walk(c, depth)).join('').trim();
+      return text ? `**${text}**` : '';
+    }
+
+    if (tag === 'I' || tag === 'EM') {
+      const text = Array.from(node.childNodes).map((c) => walk(c, depth)).join('').trim();
+      return text ? `*${text}*` : '';
+    }
+
+    if (tag === 'S' || tag === 'DEL' || tag === 'STRIKE') {
+      const text = Array.from(node.childNodes).map((c) => walk(c, depth)).join('').trim();
+      return text ? `~~${text}~~` : '';
+    }
+
+    if (tag === 'CODE') {
+      return `\`${node.textContent.replace(/`/g, '\\`')}\``;
+    }
+
+    if (tag === 'PRE') {
+      return `\n\n\`\`\`\n${node.textContent.trim()}\n\`\`\`\n\n`;
+    }
+
+    if (tag === 'BLOCKQUOTE') {
+      const text = Array.from(node.childNodes).map((c) => walk(c, depth)).join('').trim();
+      return text ? `\n\n> ${text.replace(/\n/g, '\n> ')}\n\n` : '';
+    }
+
+    if (tag === 'A') {
+      const text = Array.from(node.childNodes).map((c) => walk(c, depth)).join('').trim();
+      const href = node.getAttribute('href') || '#';
+      return `[${text || href}](${href})`;
+    }
+
+    if (tag === 'IMG') {
+      const alt = node.getAttribute('alt') || 'ảnh';
+      const src = node.getAttribute('src') || '';
+      return `![${alt}](${src})`;
+    }
+
+    if (tag === 'UL' || tag === 'OL') {
+      let idx = 1;
+      let res = '\n';
+      for (const li of node.children) {
+        if (li.tagName.toUpperCase() === 'LI') {
+          const prefix = tag === 'UL' ? '- ' : `${idx++}. `;
+          const indent = '  '.repeat(depth);
+          const liText = Array.from(li.childNodes).map((c) => walk(c, depth + 1)).join('').trim();
+          res += `${indent}${prefix}${liText}\n`;
+        }
+      }
+      return res + '\n';
+    }
+
+    if (tag === 'TABLE') {
+      return '\n\n' + htmlTableToMarkdown(node) + '\n\n';
+    }
+
+    return Array.from(node.childNodes).map((c) => walk(c, depth)).join('');
+  }
+
+  const res = walk(root);
+  return res.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** Chuyển bảng HTML sang Markdown Table */
+export function htmlTableToMarkdown(tableEl) {
+  const trList = Array.from(tableEl.querySelectorAll('tr'));
+  if (!trList.length) return '';
+
+  const matrix = [];
+  let maxCols = 0;
+
+  for (const tr of trList) {
+    const cells = Array.from(tr.querySelectorAll('th, td')).map((td) => {
+      return td.textContent.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, '<br>').trim();
+    });
+    if (cells.length > maxCols) maxCols = cells.length;
+    matrix.push(cells);
+  }
+
+  if (!matrix.length || maxCols === 0) return '';
+
+  for (const row of matrix) {
+    while (row.length < maxCols) row.push('');
+  }
+
+  const head = matrix[0];
+  const body = matrix.slice(1);
+  const sep = head.map(() => '---');
+
+  return [
+    `| ${head.join(' | ')} |`,
+    `| ${sep.join(' | ')} |`,
+    ...body.map((r) => `| ${r.join(' | ')} |`),
+  ].join('\n');
+}
 
 /** HTML -> văn bản giữ xuống dòng; ô bảng cách nhau bằng Tab */
 function htmlToText(root) {

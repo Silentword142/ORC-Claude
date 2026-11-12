@@ -1,0 +1,13 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  isElectron: true,
+  convertWithMarkItDown: (filePath) => ipcRenderer.invoke('markitdown-convert', filePath),
+  checkMarkItDownStatus: () => ipcRenderer.invoke('markitdown-status'),
+  openFileDialog: (options) => ipcRenderer.invoke('dialog-open-file', options),
+  openFolderDialog: () => ipcRenderer.invoke('dialog-open-folder'),
+  saveMarkdownDialog: (defaultName, content) => ipcRenderer.invoke('dialog-save-file', { defaultName, content }),
+  saveDirectFile: (filePath, content) => ipcRenderer.invoke('fs-save-file', { filePath, content }),
+  scanDirectory: (dirPath) => ipcRenderer.invoke('fs-read-dir', dirPath),
+  getPlatform: () => process.platform,
+});

@@ -1,15 +1,46 @@
 import './styles.css';
+import { marked } from 'marked';
 import { analyzePage, buildLines } from './core/analyze.js';
 import {
   tableToHTML, tableToCSV, tableToMarkdown, diagramToSVG, diagramToDrawio, diagramToMermaid,
   pageToMarkdown, pageToPlainText, pageToFlowHTML, reconstructPageHTML, RECON_CSS, esc,
 } from './core/export.js';
 import { ocrPage, ocrRegion, setOcrLogger } from './ocr.js';
-import { fileKind, imagePage, pdfPages, docxDocument, htmlDocument, deskewCanvas } from './loaders.js';
+import { fileKind, imagePage, pdfPages, docxDocument, htmlDocument, deskewCanvas, convertWithMarkItDown } from './loaders.js';
 import { scanWithClaude, MODELS } from './claude.js';
 
 const $ = (s) => document.querySelector(s);
 const state = { items: [], running: false, seq: 0 };
+const isElectron = typeof window !== 'undefined' && Boolean(window.electronAPI);
+
+// ---------- Khởi tạo chế độ Desktop (Electron) ----------
+if (isElectron) {
+  const db = $('#desktopBar');
+  if (db) db.hidden = false;
+  const sb = $('#btnSaveBatch');
+  if (sb) sb.hidden = false;
+
+  $('#btnDeskFile')?.addEventListener('click', async () => {
+    const res = await window.electronAPI.openFileDialog();
+    if (!res.canceled && res.filePaths.length) {
+      addFiles(res.filePaths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
+    }
+  });
+
+  $('#btnDeskFolder')?.addEventListener('click', async () => {
+    const res = await window.electronAPI.openFolderDialog();
+    if (!res.canceled && res.filePaths.length) {
+      const dir = res.filePaths[0];
+      const filesRes = await window.electronAPI.scanDirectory(dir);
+      if (filesRes.success && filesRes.files.length) {
+        addFiles(filesRes.files.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
+        toast(`Đã tải ${filesRes.files.length} tệp từ thư mục.`);
+      } else {
+        toast('Không tìm thấy tệp tài liệu hợp lệ trong thư mục này.');
+      }
+    }
+  });
+}
 
 // ---------- Nhập tệp ----------
 const drop = $('#drop');
@@ -31,21 +62,62 @@ window.addEventListener('paste', (e) => {
 });
 
 async function addFiles(files) {
+  const engine = $('#optEngine').value;
   for (const file of files) {
     const kind = fileKind(file);
     try {
-      if (kind === 'image') addPage(await imagePage(file, file.name));
-      else if (kind === 'pdf') {
+      // 1. Thử Microsoft MarkItDown trước nếu đang chọn MarkItDown hoặc Hybrid (với các định dạng Office/Doc/Text)
+      if (engine === 'markitdown' || (engine === 'hybrid' && kind !== 'image')) {
+        const mkRes = await convertWithMarkItDown(file);
+        if (mkRes && mkRes.markdown) {
+          state.items.push({
+            id: uid(),
+            type: 'doc',
+            name: file.name,
+            filePath: file.path,
+            doc: {
+              text: mkRes.markdown,
+              markdown: mkRes.markdown,
+              html: `<pre class="md-raw">${esc(mkRes.markdown)}</pre>`,
+              tables: [],
+              pages: [],
+            },
+            status: 'done',
+          });
+          continue;
+        }
+      }
+
+      // 2. Định dạng theo loaders thông thường
+      if (kind === 'image') {
+        addPage(await imagePage(file, file.name));
+      } else if (kind === 'pdf') {
         const pages = await pdfPages(file, file.name);
         pages.forEach(addPage);
-      } else if (kind === 'docx' || kind === 'html') {
-        const doc = kind === 'docx' ? await docxDocument(file) : await htmlDocument(await file.text(), file.name);
-        state.items.push({ id: uid(), type: 'doc', name: file.name, doc, status: 'done' });
+      } else if (kind === 'docx') {
+        const doc = await docxDocument(file);
+        state.items.push({ id: uid(), type: 'doc', name: file.name, filePath: file.path, doc, status: 'done' });
+        doc.pages.forEach(addPage);
+      } else if (kind === 'html') {
+        const text = typeof file.text === 'function' ? await file.text() : '';
+        const doc = await htmlDocument(text, file.name);
+        state.items.push({ id: uid(), type: 'doc', name: file.name, filePath: file.path, doc, status: 'done' });
         doc.pages.forEach(addPage);
       } else if (kind === 'text') {
-        const text = await file.text();
-        state.items.push({ id: uid(), type: 'doc', name: file.name, doc: { text, html: `<pre>${esc(text)}</pre>`, tables: [], pages: [] }, status: 'done' });
-      } else toast(`Không hỗ trợ định dạng: ${file.name}`);
+        const text = typeof file.text === 'function' ? await file.text() : '';
+        state.items.push({
+          id: uid(),
+          type: 'doc',
+          name: file.name,
+          filePath: file.path,
+          doc: { text, markdown: text, html: `<pre>${esc(text)}</pre>`, tables: [], pages: [] },
+          status: 'done',
+        });
+      } else if (kind === 'excel' || kind === 'powerpoint' || kind === 'ebook') {
+        toast(`Tệp ${file.name} cần engine MarkItDown (đang khởi động hoặc cần mở app Desktop).`);
+      } else {
+        toast(`Không hỗ trợ định dạng: ${file.name}`);
+      }
     } catch (err) {
       console.error(err);
       toast(`Lỗi đọc ${file.name}: ${err.message}`);
@@ -72,27 +144,38 @@ function renderList() {
   if (!state.items.length) {
     ul.innerHTML = '<li class="empty">Chưa có tệp nào.</li>';
   } else {
-    const label = { pending: 'chờ', run: 'đang quét…', done: 'xong', err: 'lỗi' };
-    ul.innerHTML = state.items.map((it) => `<li><span class="name" title="${esc(it.name)}">${it.type === 'doc' ? '📄 ' : ''}${esc(it.name)}</span><span class="st ${it.status}">${it.status === 'done' && it.result ? `xong${it.result.meanConfidence != null && it.result.source === 'ocr' ? ` · ${it.result.meanConfidence}%` : it.result.source === 'pdf-text' ? ' · lớp chữ PDF' : it.result.source === 'claude' ? ' · Claude' : ''}` : label[it.status]}</span></li>`).join('');
+    const label = { pending: 'chờ', run: 'đang xử lý…', done: 'xong', err: 'lỗi' };
+    ul.innerHTML = state.items.map((it) => {
+      const isDoc = it.type === 'doc';
+      const detail = it.status === 'done' && it.result
+        ? `xong${it.result.meanConfidence != null && it.result.source === 'ocr' ? ` · ${it.result.meanConfidence}%` : it.result.source === 'pdf-text' ? ' · lớp chữ PDF' : it.result.source === 'claude' ? ' · Claude' : ''}`
+        : isDoc ? 'xong · Markdown' : label[it.status];
+      return `<li><span class="name" title="${esc(it.name)}">${isDoc ? '📄 ' : ''}${esc(it.name)}</span><span class="st ${it.status}">${detail}</span></li>`;
+    }).join('');
   }
   $('#btnRun').disabled = state.running || !state.items.some((it) => it.type === 'page' && it.status !== 'done');
 }
 
-// ---------- Chạy nhận dạng ----------
-// ---------- Bộ nhận dạng: offline (Tesseract) hoặc Claude ----------
+// ---------- Bộ nhận dạng & Cấu hình Engine ----------
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* bỏ qua */ } },
 };
 $('#optModel').innerHTML = Object.entries(MODELS).map(([id, m]) => `<option value="${id}">${m.label}</option>`).join('');
-$('#optEngine').value = store.get('orc.engine') || 'local';
+$('#optEngine').value = store.get('orc.engine') || 'hybrid';
 $('#optModel').value = store.get('orc.model') || 'claude-opus-5-5';
 if (store.get('orc.apiKey')) { $('#apiKey').value = store.get('orc.apiKey'); $('#rememberKey').checked = true; }
+
 const syncEngine = () => {
-  const claude = $('#optEngine').value === 'claude';
-  $('#claudeOpts').hidden = !claude;
-  $('#localOpts').hidden = claude;
-  store.set('orc.engine', $('#optEngine').value);
+  const eng = $('#optEngine').value;
+  const isClaude = eng === 'claude';
+  const isMarkItDown = eng === 'markitdown';
+
+  $('#claudeOpts').hidden = !isClaude;
+  $('#markitdownOpts').hidden = !isMarkItDown && eng !== 'hybrid';
+  $('#localOpts').hidden = isClaude || isMarkItDown;
+  store.set('orc.engine', eng);
+  checkMarkItDownStatus();
 };
 syncEngine();
 $('#optEngine').addEventListener('change', syncEngine);
@@ -100,6 +183,27 @@ $('#optModel').addEventListener('change', () => store.set('orc.model', $('#optMo
 const syncKey = () => store.set('orc.apiKey', $('#rememberKey').checked && $('#apiKey').value.trim() ? $('#apiKey').value.trim() : null);
 $('#apiKey').addEventListener('change', syncKey);
 $('#rememberKey').addEventListener('change', syncKey);
+
+async function checkMarkItDownStatus() {
+  const el = $('#markitdownStatus');
+  if (!el) return;
+  if (isElectron && window.electronAPI?.checkMarkItDownStatus) {
+    const s = await window.electronAPI.checkMarkItDownStatus();
+    el.textContent = s.ready ? '⚡ Sẵn sàng: Microsoft MarkItDown Engine (Desktop)' : 'Đang khởi động tiến trình Python MarkItDown…';
+    el.className = 'engine-status' + (s.ready ? '' : ' err');
+  } else {
+    try {
+      const resp = await fetch('http://127.0.0.1:49152/health');
+      if (resp.ok) {
+        el.textContent = '⚡ Sẵn sàng: Microsoft MarkItDown Local HTTP Service';
+        el.className = 'engine-status';
+        return;
+      }
+    } catch (_) {}
+    el.textContent = 'Sẵn sàng chế độ Hybrid: Tự động chuyển đổi tối ưu theo định dạng tệp.';
+    el.className = 'engine-status';
+  }
+}
 
 const opt = () => ({
   engine: $('#optEngine').value,
@@ -129,7 +233,7 @@ async function run() {
   prog.hidden = false;
   let done = 0, frac = 0;
   const setProg = (msg) => {
-    $('#progressBar').style.width = `${Math.round(((done + frac) / todo.length) * 100)}%`;
+    $('#progressBar').style.width = `${Math.round(((done + frac) / (todo.length || 1)) * 100)}%`;
     if (msg) $('#progressText').textContent = msg;
   };
   setOcrLogger((m) => {
@@ -145,7 +249,6 @@ async function run() {
   };
 
   if (o.engine === 'claude') {
-    // Gửi song song tối đa 3 trang để nhanh hơn
     let next = 0;
     const worker = async () => {
       while (next < todo.length) {
@@ -170,7 +273,7 @@ async function run() {
       }
     };
     await Promise.all(Array.from({ length: Math.min(3, todo.length) }, worker));
-    setProg(`Hoàn tất ${todo.length} trang · chi phí ước tính ≈ $${cost.toFixed(3)} (Claude ${MODELS[o.model]?.label || o.model})`);
+    setProg(`Hoàn tất ${todo.length} trang · chi phí ước tính ≈ $${cost.toFixed(3)}`);
     state.running = false;
     renderList();
     return;
@@ -234,11 +337,47 @@ const activeTab = () => document.querySelector('.tabs button.active').dataset.ta
 const doneItems = () => state.items.filter((it) => it.status === 'done' && (it.type === 'doc' || it.result));
 
 function renderResults() {
+  renderMarkdown();
   renderText();
   renderTables();
   renderDiagrams();
   if (activeTab() === 'recon') renderRecon();
   if (activeTab() === 'overlay') renderOverlay();
+}
+
+// Chế độ xem Markdown (Rendered vs Raw Source)
+$('#btnMdPreview')?.addEventListener('click', () => {
+  $('#btnMdPreview').classList.add('active');
+  $('#btnMdSource').classList.remove('active');
+  $('#mdRendered').hidden = false;
+  $('#mdSource').hidden = true;
+});
+
+$('#btnMdSource')?.addEventListener('click', () => {
+  $('#btnMdSource').classList.add('active');
+  $('#btnMdPreview').classList.remove('active');
+  $('#mdRendered').hidden = true;
+  $('#mdSource').hidden = false;
+});
+
+function renderMarkdown() {
+  const items = doneItems();
+  const multi = items.length > 1;
+  const parts = items.map((it) => {
+    const body = it.type === 'doc'
+      ? (it.doc.markdown || it.doc.text)
+      : pageToMarkdown(it.result);
+    return multi ? `## ${it.name}\n\n${body}` : body;
+  });
+  const fullMd = parts.join('\n\n');
+  $('#mdSource').value = fullMd;
+  try {
+    $('#mdRendered').innerHTML = fullMd ? marked.parse(fullMd) : '<p class="hint">Kết quả Markdown sẽ hiển thị ở đây.</p>';
+  } catch {
+    $('#mdRendered').innerHTML = `<pre>${esc(fullMd)}</pre>`;
+  }
+  const words = fullMd.trim() ? fullMd.trim().split(/\s+/).length : 0;
+  $('#mdMeta').textContent = items.length ? `${items.length} tệp/trang · ~${words} từ` : '';
 }
 
 function renderText() {
@@ -256,7 +395,7 @@ function renderText() {
 function allTables() {
   const out = [];
   for (const it of doneItems()) {
-    const list = it.type === 'doc' ? it.doc.tables : it.result.tables;
+    const list = it.type === 'doc' ? it.doc.tables : (it.result?.tables || []);
     list.forEach((t, i) => out.push({ it, t, i }));
   }
   return out;
@@ -278,19 +417,13 @@ function renderTables() {
         <button type="button" data-a="xls">Tải Excel</button>
         <button type="button" data-a="md">Sao chép Markdown</button>
         <button type="button" data-a="tsv">Sao chép (dán vào Excel)</button>
-        <span class="meta">Bấm vào ô để sửa</span>
       </div>
       <div class="scroll">${tableToHTML(t, { editable: true })}</div>`;
-    card.querySelector('table').addEventListener('input', (e) => {
-      const td = e.target.closest('td');
-      const cell = t.cells.find((c) => c.r === +td.dataset.r && c.c === +td.dataset.c);
-      if (cell) cell.text = td.innerText.replace(/\n$/, '');
-    });
-    const base = `${stem(it.name)}-bang-${i + 1}`;
-    card.querySelector('.toolbar').addEventListener('click', (e) => {
+    card.addEventListener('click', (e) => {
       const a = e.target.dataset.a;
-      if (a === 'csv') download(`${base}.csv`, '\ufeff' + tableToCSV(t), 'text/csv;charset=utf-8');
-      if (a === 'xls') download(`${base}.xls`, excelHTML(t), 'application/vnd.ms-excel');
+      if (!a) return;
+      if (a === 'csv') download(`${stem(it.name)}-bang-${i + 1}.csv`, '\ufeff' + tableToCSV(t), 'text/csv;charset=utf-8');
+      if (a === 'xls') download(`${stem(it.name)}-bang-${i + 1}.xls`, '\ufeff' + tableToHTML(t), 'application/vnd.ms-excel');
       if (a === 'md') copy(tableToMarkdown(t));
       if (a === 'tsv') copy(tableToCSV(t, '\t'));
     });
@@ -298,71 +431,66 @@ function renderTables() {
   });
 }
 
-function excelHTML(t) {
-  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>${
-    tableToHTML(t).replace(/<td/g, '<td style="border:.5pt solid #000;vertical-align:top;mso-number-format:\'\\@\'"')}</body></html>`;
+function allDiagrams() {
+  const out = [];
+  for (const it of doneItems()) {
+    if (it.result) diagramsOf(it.result).forEach((d, i) => out.push({ it, d, i }));
+  }
+  return out;
 }
 
-function renderDiagrams() {
-  const list = doneItems().flatMap((it) => diagramsOf(it.result).map((d) => ({ it, d })));
+async function renderDiagrams() {
+  const list = allDiagrams();
   $('#cntDiagrams').textContent = list.length;
   const box = $('#diagramsOut');
-  if (!list.length) { box.innerHTML = '<p class="hint">Chưa có sơ đồ nào. Hỗ trợ lưu đồ/sơ đồ khối: hình chữ nhật, bo góc, elip, thoi, bình hành, mũi tên và đường gấp khúc.</p>'; return; }
+  if (!list.length) { box.innerHTML = '<p class="hint">Chưa có sơ đồ nào.</p>'; return; }
   box.innerHTML = '';
-  for (const { it, d } of list) {
-    const svg = diagramToSVG(d);
-    const mermaid = diagramToMermaid(d);
+  for (const { it, d, i } of list) {
     const card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML = `<h3>${esc(it.name)}<small>${d.shapes.length} hình · ${d.connectors.length} đường nối · ${d.labels.length} nhãn</small></h3>
+    card.innerHTML = `<h3>${esc(it.name)} · Sơ đồ ${i + 1}<small>${d.shapes.length} hình · ${d.connectors.length} đường nối</small></h3>
       <div class="toolbar">
         <button type="button" data-a="svg">Tải SVG</button>
         <button type="button" data-a="png">Tải PNG</button>
-        <button type="button" data-a="drawio">Tải draw.io (sửa tiếp)</button>
-        <button type="button" data-a="mmd">Sao chép Mermaid</button>
+        <button type="button" data-a="drawio">Tải .drawio</button>
+        <button type="button" data-a="mermaid">Sao chép Mermaid</button>
       </div>
       <div class="split">
-        <figure><figcaption>Ảnh gốc</figcaption><img alt="Vùng sơ đồ gốc" /></figure>
-        <figure><figcaption>Vẽ lại</figcaption><div class="diagram-view">${svg}</div></figure>
+        <figure><figcaption>Hình vẽ lại (vector):</figcaption><div class="diagram-view">${diagramToSVG(d)}</div></figure>
+        <figure><figcaption>Vùng ảnh gốc:</figcaption><img src="${await cropImage(it.imageUrl, d.bbox, 10)}" alt="Gốc" /></figure>
       </div>
-      <details><summary>Mã Mermaid</summary><pre class="code">${esc(mermaid)}</pre></details>`;
-    cropImage(it.imageUrl, d.bbox, 20).then((url) => { card.querySelector('img').src = url; });
-    const base = `${stem(it.name)}-so-do`;
-    card.querySelector('.toolbar').addEventListener('click', async (e) => {
+      <details><summary>Mã Mermaid</summary><pre class="code">${esc(diagramToMermaid(d))}</pre></details>`;
+    card.addEventListener('click', async (e) => {
       const a = e.target.dataset.a;
-      if (a === 'svg') download(`${base}.svg`, svg, 'image/svg+xml');
-      if (a === 'png') download(`${base}.png`, await svgToPng(svg), 'image/png');
+      if (!a) return;
+      const base = `${stem(it.name)}-sodo-${i + 1}`;
+      if (a === 'svg') download(`${base}.svg`, diagramToSVG(d), 'image/svg+xml');
+      if (a === 'png') download(`${base}.png`, await svgToPng(diagramToSVG(d)), 'image/png');
       if (a === 'drawio') download(`${base}.drawio`, diagramToDrawio(d), 'application/xml');
-      if (a === 'mmd') copy(mermaid);
+      if (a === 'mermaid') copy(diagramToMermaid(d));
     });
     box.appendChild(card);
   }
 }
 
-function renderRecon() {
-  const box = $('#reconOut');
+async function renderRecon() {
   const list = doneItems().filter((it) => it.result);
+  const box = $('#reconOut');
   if (!list.length) { box.innerHTML = '<p class="hint">Chưa có kết quả.</p>'; return; }
+  box.innerHTML = '';
   const overlay = $('#reconOverlay').checked;
-  const avail = Math.max(280, (box.clientWidth || 800) - 26); // trừ lề của thẻ
-  box.innerHTML = `<style>${RECON_CSS}</style>`;
   for (const it of list) {
-    const r = it.result;
-    const s = Math.min(1, avail / r.width);
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `<h3>${esc(it.name)}</h3><div class="recon-box" style="width:${r.width * s}px;height:${r.height * s}px">
-      <div class="recon-wrap" style="width:${r.width}px;height:${r.height}px;transform:scale(${s})">
-        ${overlay ? `<img class="under" src="${it.imageUrl}" alt="">` : ''}${reconstructPageHTML(r)}
-      </div></div>`;
-    box.appendChild(card);
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    wrap.innerHTML = `<h3>${esc(it.name)}</h3><div class="recon-box"><div class="recon-wrap">${reconstructPageHTML(it.result)}${overlay ? `<img class="under" src="${it.imageUrl}" alt="" />` : ''}</div></div>`;
+    box.appendChild(wrap);
   }
 }
 $('#reconOverlay').addEventListener('change', renderRecon);
 
 async function renderOverlay() {
-  const box = $('#overlayOut');
   const list = doneItems().filter((it) => it.result);
+  const box = $('#overlayOut');
   if (!list.length) { box.innerHTML = '<p class="hint">Chưa có kết quả.</p>'; return; }
   box.innerHTML = '';
   for (const it of list) {
@@ -383,7 +511,6 @@ async function renderOverlay() {
     ctx.scale(s, s);
     const box2 = (b, color, lw = 2) => { ctx.strokeStyle = color; ctx.lineWidth = lw / s; ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); };
     for (const w of r.words) box2(w, 'rgba(59,130,246,.7)', 1);
-    // Chế độ Claude không có khung từng từ: vẽ khung đoạn văn
     for (const b of r.blocks) if (r.source === 'claude' && b.type === 'para') box2(b.bbox, 'rgba(59,130,246,.8)', 2);
     for (const t of r.tables) { box2(t.bbox, '#16a34a', 3); t.cells.forEach((c) => box2(c, 'rgba(22,163,74,.5)', 1)); }
     for (const dg of diagramsOf(r)) {
@@ -398,8 +525,41 @@ async function renderOverlay() {
   }
 }
 
-// ---------- Xuất văn bản ----------
-document.querySelector('[data-panel="text"] .toolbar').addEventListener('click', (e) => {
+// ---------- Toolbar Xuất Markdown & Desktop Save ----------
+document.querySelector('[data-panel="markdown"] .toolbar')?.addEventListener('click', async (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const items = doneItems();
+  if (!items.length) return toast('Chưa có kết quả để lưu.');
+  const fullMd = $('#mdSource').value;
+  const name = items.length === 1 ? stem(items[0].name) : 'ket-qua-chuyen-doi';
+
+  if (act === 'copyMd') {
+    await copy(fullMd);
+  } else if (act === 'saveMd') {
+    if (isElectron && window.electronAPI?.saveMarkdownDialog) {
+      const res = await window.electronAPI.saveMarkdownDialog(`${name}.md`, fullMd);
+      if (res && res.success) toast(`Đã lưu file: ${res.filePath}`);
+    } else {
+      download(`${name}.md`, fullMd, 'text/markdown;charset=utf-8');
+    }
+  } else if (act === 'saveBatchMd') {
+    if (!isElectron || !window.electronAPI?.saveDirectFile) return;
+    let count = 0;
+    for (const it of items) {
+      if (it.filePath) {
+        const outPath = it.filePath.replace(/\.[^.]+$/, '') + '.md';
+        const content = it.type === 'doc' ? (it.doc.markdown || it.doc.text) : pageToMarkdown(it.result);
+        const res = await window.electronAPI.saveDirectFile(outPath, content);
+        if (res && res.success) count++;
+      }
+    }
+    toast(`Đã lưu ${count} tệp .md cạnh tệp nguồn thành công!`);
+  }
+});
+
+// ---------- Xuất văn bản thuần & Word/HTML ----------
+document.querySelector('[data-panel="text"] .toolbar')?.addEventListener('click', (e) => {
   const act = e.target.dataset.act;
   if (!act) return;
   const items = doneItems();
@@ -407,7 +567,6 @@ document.querySelector('[data-panel="text"] .toolbar').addEventListener('click',
   const name = items.length === 1 ? stem(items[0].name) : 'ket-qua-quet';
   if (act === 'copyText') copy($('#textOut').value);
   if (act === 'dlTxt') download(`${name}.txt`, $('#textOut').value, 'text/plain;charset=utf-8');
-  if (act === 'dlMd') download(`${name}.md`, items.map((it) => (items.length > 1 ? `## ${it.name}\n\n` : '') + (it.type === 'doc' ? it.doc.text : pageToMarkdown(it.result))).join('\n\n'), 'text/markdown;charset=utf-8');
   if (act === 'dlDoc' || act === 'dlHtml') {
     const body = items.map((it) => (items.length > 1 ? `<h2>${esc(it.name)}</h2>` : '') + (it.type === 'doc' ? it.doc.html : pageToFlowHTML(it.result))).join('\n<hr>\n');
     const html = `<!doctype html><html${act === 'dlDoc' ? ' xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"' : ''}><head><meta charset="utf-8"><title>${esc(name)}</title><style>body{font-family:Arial,sans-serif;line-height:1.5}table{border-collapse:collapse;margin:8px 0}td{border:1px solid #444;padding:4px 6px}</style></head><body>${body}</body></html>`;
@@ -416,7 +575,7 @@ document.querySelector('[data-panel="text"] .toolbar').addEventListener('click',
   }
 });
 
-document.querySelector('[data-act="dlRecon"]').addEventListener('click', () => {
+document.querySelector('[data-act="dlRecon"]')?.addEventListener('click', () => {
   const list = doneItems().filter((it) => it.result);
   if (!list.length) return toast('Chưa có kết quả.');
   const pages = list.map((it) => `<section><h2 style="font:14px Arial;color:#555">${esc(it.name)}</h2>${reconstructPageHTML(it.result)}</section>`).join('');
@@ -438,11 +597,11 @@ function download(name, data, type) {
 }
 
 async function copy(text) {
-  try { await navigator.clipboard.writeText(text); toast('Đã sao chép.'); }
+  try { await navigator.clipboard.writeText(text); toast('Đã sao chép vào bộ nhớ tạm.'); }
   catch {
     const ta = document.createElement('textarea');
     ta.value = text; document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); ta.remove(); toast('Đã sao chép.');
+    document.execCommand('copy'); ta.remove(); toast('Đã sao chép vào bộ nhớ tạm.');
   }
 }
 
@@ -479,12 +638,18 @@ async function svgToPng(svg) {
   return new Promise((res) => c.toBlob(res, 'image/png'));
 }
 
-// Trạng thái ngoại tuyến + service worker (bản build)
+// Trạng thái ngoại tuyến + service worker
 function netStatus() {
-  const claude = $('#optEngine').value === 'claude';
-  $('#netStatus').textContent = claude
-    ? (navigator.onLine ? 'Chế độ Claude: ảnh được gửi tới Anthropic' : 'Ngoại tuyến — chế độ Claude cần mạng')
-    : (navigator.onLine ? 'Chế độ offline: dữ liệu không rời khỏi máy bạn' : 'Đang ngoại tuyến — vẫn dùng được');
+  const eng = $('#optEngine').value;
+  if (eng === 'claude') {
+    $('#netStatus').textContent = navigator.onLine ? 'Chế độ Claude: ảnh được gửi tới Anthropic' : 'Ngoại tuyến — Claude AI cần kết nối mạng';
+  } else if (eng === 'markitdown') {
+    $('#netStatus').textContent = 'Chế độ Microsoft MarkItDown: Xử lý cục bộ 100% trên máy';
+  } else if (eng === 'hybrid') {
+    $('#netStatus').textContent = 'Chế độ Hybrid: Tự động tối ưu theo từng loại file';
+  } else {
+    $('#netStatus').textContent = navigator.onLine ? 'Chế độ Offline Tesseract: Dữ liệu không rời máy' : 'Ngoại tuyến — hoạt động 100%';
+  }
 }
 $('#optEngine').addEventListener('change', netStatus);
 window.addEventListener('online', netStatus);
