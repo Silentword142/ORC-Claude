@@ -1,0 +1,87 @@
+name: Build Windows App (.exe)
+
+on:
+  push:
+    branches: [main, master, claude/elegant-archimedes-jv6dhb]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Bundle markitdown_service.exe (standalone, no Python needed on user PC)
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --onedir --console `
+            --name markitdown_service `
+            --collect-all markitdown `
+            --collect-all magika `
+            --collect-all onnxruntime `
+            --collect-all pdfminer `
+            --collect-all pypdfium2 `
+            --collect-all mammoth `
+            --collect-all openpyxl `
+            --collect-all pptx `
+            scripts/markitdown_service.py
+          New-Item -ItemType Directory -Force -Path resources/markitdown | Out-Null
+          Copy-Item -Recurse -Force dist/markitdown_service/* resources/markitdown/
+
+      - name: Install Node dependencies
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build & Package Windows .exe (Setup + Portable)
+        run: npm run package:win
+
+      - name: List release artifacts
+        shell: pwsh
+        run: Get-ChildItem release/*.exe
+
+      - name: Upload Windows .exe Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ORC-MarkItDown-Studio-Windows
+          path: |
+            release/*.exe
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0-win
+          name: ORC MarkItDown Studio (Windows .exe)
+          body: |
+            Ứng dụng **ORC MarkItDown Studio** dành cho Windows 64-bit (đã tích hợp sẵn Microsoft MarkItDown, ORC Scanner & Claude AI — tải về mở dùng ngay, không cần cài Python).
+            - **Bản Portable**: `ORC MarkItDown Studio 1.0.0.exe` (tải về chạy ngay không cần cài đặt).
+            - **Bản Cài Đặt (Setup)**: `ORC MarkItDown Studio Setup 1.0.0.exe`.
+          files: |
+            release/*.exe
+          prerelease: false
+          make_latest: true

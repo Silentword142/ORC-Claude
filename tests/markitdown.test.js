@@ -2,10 +2,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
 
-test('MarkItDown Python Service CLI chuyển đổi HTML và bảng sang Markdown', () => {
-  const pyExe = fs.existsSync('.venv/bin/python') ? '.venv/bin/python' : 'python3';
+function hasMarkItDown(pyExe) {
+  try {
+    execFileSync(pyExe, ['-c', 'import markitdown'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test('MarkItDown Python Service CLI chuyển đổi HTML và bảng sang Markdown', (t) => {
+  const pyExe = fs.existsSync('.venv/bin/python') ? '.venv/bin/python' : (fs.existsSync('.venv/Scripts/python.exe') ? '.venv/Scripts/python.exe' : 'python3');
+  if (!hasMarkItDown(pyExe)) {
+    t.skip('Bỏ qua kiểm thử MarkItDown vì chưa cài gói Python markitdown trong môi trường hiện tại');
+    return;
+  }
+
   const script = 'scripts/markitdown_service.py';
   const tempFile = 'tests/fixtures/sample_test.html';
 

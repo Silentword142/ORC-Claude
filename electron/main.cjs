@@ -33,18 +33,36 @@ function findPython() {
   return isWin ? 'python.exe' : 'python3';
 }
 
-function startMarkItDownService() {
+function resolveMarkItDownCommand(extraArgs = []) {
+  const isWin = process.platform === 'win32';
+  // 1. Ưu tiên binary đóng gói sẵn (standalone PyInstaller) trong resources/markitdown/
+  const bundledExe = isWin
+    ? path.join(process.resourcesPath || '', 'markitdown', 'markitdown_service.exe')
+    : path.join(process.resourcesPath || '', 'markitdown', 'markitdown_service');
+  if (fs.existsSync(bundledExe)) {
+    return { cmd: bundledExe, args: extraArgs };
+  }
+
+  // 2. Fallback: chạy qua Python + script
   const pyExe = findPython();
   const scriptPath = path.join(__dirname, '..', 'scripts', 'markitdown_service.py');
-
   if (!fs.existsSync(scriptPath)) {
-    console.warn('[MarkItDown] Không tìm thấy script:', scriptPath);
+    return null;
+  }
+  return { cmd: pyExe, args: [scriptPath, ...extraArgs] };
+}
+
+function startMarkItDownService() {
+  const resolved = resolveMarkItDownCommand(['serve', '-p', String(markItDownPort)]);
+  if (!resolved) {
+    console.warn('[MarkItDown] Không tìm thấy service hoặc script.');
     return;
   }
 
   try {
-    pythonProcess = spawn(pyExe, [scriptPath, 'serve', '-p', String(markItDownPort)], {
+    pythonProcess = spawn(resolved.cmd, resolved.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
       env: { ...process.env, PYTHONUNBUFFERED: '1' }
     });
 
@@ -65,11 +83,13 @@ function startMarkItDownService() {
       isPythonReady = false;
     });
   } catch (err) {
-    console.error('[MarkItDown Server] Không thể khởi động tiến trình Python:', err);
+    console.error('[MarkItDown Server] Không thể khởi động tiến trình MarkItDown:', err);
   }
 }
 
 function createWindow() {
+  const pngIcon = path.join(__dirname, '..', 'build', 'icon.png');
+  const svgIcon = path.join(__dirname, '..', 'public', 'icon.svg');
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 850,
@@ -82,7 +102,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: false,
     },
-    icon: path.join(__dirname, '..', 'public', 'icon.svg')
+    icon: fs.existsSync(pngIcon) ? pngIcon : svgIcon
   });
 
   // Tùy biến thanh menu
@@ -144,11 +164,14 @@ ipcMain.handle('markitdown-convert', async (event, filePath) => {
     }
   }
 
-  // Fallback: Chạy trực tiếp CLI Python một lần
+  // Fallback: Chạy trực tiếp CLI một lần
   return new Promise((resolve) => {
-    const pyExe = findPython();
-    const scriptPath = path.join(__dirname, '..', 'scripts', 'markitdown_service.py');
-    execFile(pyExe, [scriptPath, 'convert', filePath], { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const resolved = resolveMarkItDownCommand(['convert', filePath]);
+    if (!resolved) {
+      resolve({ success: false, error: 'Không tìm thấy engine MarkItDown', markdown: '' });
+      return;
+    }
+    execFile(resolved.cmd, resolved.args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         resolve({
           success: false,
