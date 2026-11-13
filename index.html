@@ -29,11 +29,16 @@
       </div>
 
       <label class="drop" id="drop" tabindex="0">
-        <input type="file" id="fileInput" multiple accept="image/*,.pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.tsv,.json,.html,.htm,.xml,.epub,.rtf,.msg" hidden />
+        <input type="file" id="fileInput" multiple accept="image/*,audio/*,video/*,.pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.tsv,.json,.html,.htm,.xml,.epub,.rtf,.msg" hidden />
         <strong>Kéo thả tệp vào đây</strong>
-        <span>hoặc bấm để chọn · dán ảnh bằng Ctrl+V</span>
-        <small>Word, Excel, PowerPoint, PDF, HTML, EPub, RTF, CSV, Ảnh scan…</small>
+        <span>hoặc bấm để chọn · dán ảnh hoặc link bằng Ctrl+V</span>
+        <small>Word, Excel, PowerPoint, PDF, HTML, EPub, RTF, CSV, Ảnh, Audio…</small>
       </label>
+
+      <div class="url-box">
+        <input type="url" id="urlInput" placeholder="Dán link YouTube, video hoặc URL web…" autocomplete="off" spellcheck="false" />
+        <button type="button" id="btnAddUrl">Lấy .md</button>
+      </div>
 
       <section class="panel">
         <h2>Tùy chọn xử lý</h2>

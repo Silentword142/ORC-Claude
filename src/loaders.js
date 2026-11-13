@@ -185,6 +185,30 @@ export async function convertWithMarkItDown(file) {
   return null;
 }
 
+/** Chuyển đổi URL YouTube, video hoặc trang web sang Markdown qua MarkItDown */
+export async function convertUrlWithMarkItDown(url, languages = ['vi', 'en']) {
+  if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.convertUrlWithMarkItDown) {
+    const res = await window.electronAPI.convertUrlWithMarkItDown(url, languages);
+    if (res && res.success) return res;
+    if (res && res.error) throw new Error(res.error);
+  }
+
+  try {
+    const resp = await fetch('http://127.0.0.1:49152/convert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, languages })
+    });
+    const data = await resp.json().catch(() => null);
+    if (data && data.success) return data;
+    if (data && data.error) throw new Error(data.error);
+  } catch (err) {
+    if (err && err.message && !/fetch/i.test(err.message)) throw err;
+  }
+
+  throw new Error('Cần chạy trên ứng dụng Desktop Windows (hoặc bật MarkItDown service) để trích xuất link YouTube/URL.');
+}
+
 /** DOCX: chuyển sang Markdown (giữ bảng, heading, in đậm/nghiêng) + OCR các ảnh nhúng */
 export async function docxDocument(file) {
   // Thử MarkItDown trước nếu có

@@ -6,7 +6,7 @@ import {
   pageToMarkdown, pageToPlainText, pageToFlowHTML, reconstructPageHTML, RECON_CSS, esc,
 } from './core/export.js';
 import { ocrPage, ocrRegion, setOcrLogger } from './ocr.js';
-import { fileKind, imagePage, pdfPages, docxDocument, htmlDocument, deskewCanvas, convertWithMarkItDown } from './loaders.js';
+import { fileKind, imagePage, pdfPages, docxDocument, htmlDocument, deskewCanvas, convertWithMarkItDown, convertUrlWithMarkItDown } from './loaders.js';
 import { scanWithClaude, MODELS } from './claude.js';
 
 const $ = (s) => document.querySelector(s);
@@ -42,9 +42,12 @@ if (isElectron) {
   });
 }
 
-// ---------- Nhập tệp ----------
+// ---------- Nhập tệp & Dán link YouTube / URL ----------
 const drop = $('#drop');
 const fileInput = $('#fileInput');
+const urlInput = $('#urlInput');
+const btnAddUrl = $('#btnAddUrl');
+
 drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
 fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
 ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
@@ -52,14 +55,74 @@ fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fil
 drop.addEventListener('drop', (e) => addFiles([...e.dataTransfer.files]));
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => { e.preventDefault(); if (!drop.contains(e.target)) addFiles([...e.dataTransfer.files]); });
+
+btnAddUrl?.addEventListener('click', () => {
+  const u = urlInput?.value.trim();
+  if (!u) return toast('Hãy dán đường link YouTube hoặc URL cần chuyển đổi.');
+  addUrl(u);
+});
+urlInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    btnAddUrl?.click();
+  }
+});
+
 window.addEventListener('paste', (e) => {
-  if (e.target.closest && e.target.closest('textarea, [contenteditable="true"]')) return;
+  if (e.target.closest && e.target.closest('input, textarea, [contenteditable="true"]')) return;
   const files = [...(e.clipboardData?.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
   if (files.length) {
     e.preventDefault();
     addFiles(files.map((f, k) => new File([f], f.name && f.name !== 'image.png' ? f.name : `Ảnh dán ${++state.seq}${k ? '-' + k : ''}.png`, { type: f.type })));
+    return;
+  }
+  const text = e.clipboardData?.getData('text/plain')?.trim() || '';
+  if (/^https?:\/\/\S+$/i.test(text)) {
+    e.preventDefault();
+    if (urlInput) urlInput.value = text;
+    addUrl(text);
   }
 });
+
+async function addUrl(rawUrl) {
+  let url = rawUrl.trim();
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  const item = {
+    id: uid(),
+    type: 'doc',
+    name: url,
+    doc: { text: '', markdown: '', html: '', tables: [], pages: [] },
+    status: 'run',
+  };
+  state.items.push(item);
+  renderList();
+  if (btnAddUrl) btnAddUrl.disabled = true;
+
+  try {
+    const langVal = $('#optLang')?.value || 'vie+eng';
+    const langs = langVal === 'eng' ? ['en', 'vi'] : ['vi', 'en'];
+    const res = await convertUrlWithMarkItDown(url, langs);
+    item.name = res.title && res.title !== url ? res.title : url;
+    item.doc = {
+      text: res.markdown,
+      markdown: res.markdown,
+      html: `<pre class="md-raw">${esc(res.markdown)}</pre>`,
+      tables: [],
+      pages: [],
+    };
+    item.status = 'done';
+    if (urlInput) urlInput.value = '';
+    toast(`Đã chuyển đổi: ${item.name}`);
+  } catch (err) {
+    console.error(err);
+    item.status = 'err';
+    toast(`Lỗi đọc link: ${err.message}`);
+  } finally {
+    if (btnAddUrl) btnAddUrl.disabled = false;
+    renderList();
+    renderResults();
+  }
+}
 
 async function addFiles(files) {
   const engine = $('#optEngine').value;

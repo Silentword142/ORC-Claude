@@ -179,31 +179,32 @@ ipcMain.handle('markitdown-status', async () => {
   };
 });
 
-ipcMain.handle('markitdown-convert', async (event, filePath) => {
-  // Thử gọi qua HTTP Server nếu đang chạy
-  if (isPythonReady) {
+async function runMarkItDownPayload(payload, cliTarget) {
+  if (isPythonReady && markItDownPort) {
     try {
       const resp = await fetch(`http://127.0.0.1:${markItDownPort}/convert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath })
+        body: JSON.stringify(payload)
       });
-      if (resp.ok) {
-        return await resp.json();
-      }
+      const data = await resp.json().catch(() => null);
+      if (data) return data;
     } catch (e) {
       console.warn('[MarkItDown IPC] Gọi qua HTTP thất bại, chuyển sang CLI fallback:', e);
     }
   }
 
-  // Fallback: Chạy trực tiếp CLI một lần
   return new Promise((resolve) => {
-    const resolved = resolveMarkItDownCommand(['convert', filePath]);
+    const resolved = resolveMarkItDownCommand(['convert', cliTarget]);
     if (!resolved) {
       resolve({ success: false, error: 'Không tìm thấy engine MarkItDown', markdown: '' });
       return;
     }
-    execFile(resolved.cmd, resolved.args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(resolved.cmd, resolved.args, {
+      maxBuffer: 50 * 1024 * 1024,
+      windowsHide: true,
+      env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
+    }, (error, stdout, stderr) => {
       if (error) {
         resolve({
           success: false,
@@ -213,9 +214,8 @@ ipcMain.handle('markitdown-convert', async (event, filePath) => {
         return;
       }
       try {
-        const parsed = JSON.parse(stdout);
-        resolve(parsed);
-      } catch (err) {
+        resolve(JSON.parse(stdout));
+      } catch {
         resolve({
           success: false,
           error: `Không thể đọc kết quả từ MarkItDown: ${stdout}`,
@@ -224,6 +224,14 @@ ipcMain.handle('markitdown-convert', async (event, filePath) => {
       }
     });
   });
+}
+
+ipcMain.handle('markitdown-convert', async (event, filePath) => {
+  return runMarkItDownPayload({ filePath }, filePath);
+});
+
+ipcMain.handle('markitdown-convert-url', async (event, { url, languages }) => {
+  return runMarkItDownPayload({ url, languages }, url);
 });
 
 // Hộp thoại chọn tệp

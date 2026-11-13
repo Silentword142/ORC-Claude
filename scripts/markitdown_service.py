@@ -22,7 +22,41 @@ try:
 except ImportError:
     _has_markitdown = False
 
-def convert_file(file_path):
+def convert_url(url, languages=None):
+    if not _has_markitdown:
+        return {
+            "success": False,
+            "error": "Thư viện 'markitdown' chưa được cài đặt. Vui lòng chạy: pip install markitdown[all]",
+            "markdown": ""
+        }
+
+    try:
+        md = MarkItDown()
+        langs = languages or ["vi", "en"]
+        try:
+            result = md.convert_uri(url, youtube_transcript_languages=langs)
+        except Exception:
+            result = md.convert_uri(url)
+        title = getattr(result, 'title', None) or url
+        text_content = result.text_content or ""
+        return {
+            "success": True,
+            "title": title,
+            "markdown": text_content,
+            "error": None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "markdown": ""
+        }
+
+
+def convert_file(file_path, languages=None):
+    if isinstance(file_path, str) and (file_path.startswith("http://") or file_path.startswith("https://")):
+        return convert_url(file_path, languages=languages)
+
     if not _has_markitdown:
         return {
             "success": False,
@@ -88,11 +122,15 @@ class MarkItDownHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(content_length)
             try:
                 data = json.loads(body.decode("utf-8"))
+                url = data.get("url")
                 file_path = data.get("filePath")
-                if not file_path:
-                    res = {"success": False, "error": "Thiếu tham số 'filePath'"}
+                languages = data.get("languages")
+                if url:
+                    res = convert_url(url, languages=languages)
+                elif file_path:
+                    res = convert_file(file_path, languages=languages)
                 else:
-                    res = convert_file(file_path)
+                    res = {"success": False, "error": "Thiếu tham số 'filePath' hoặc 'url'"}
             except Exception as e:
                 res = {"success": False, "error": f"Lỗi xử lý yêu cầu: {e}"}
 

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   convertWithMarkItDown: (filePath) => ipcRenderer.invoke('markitdown-convert', filePath),
+  convertUrlWithMarkItDown: (url, languages) => ipcRenderer.invoke('markitdown-convert-url', { url, languages }),
   checkMarkItDownStatus: () => ipcRenderer.invoke('markitdown-status'),
   openFileDialog: (options) => ipcRenderer.invoke('dialog-open-file', options),
   openFolderDialog: () => ipcRenderer.invoke('dialog-open-folder'),

@@ -151,6 +151,17 @@ pre.code { margin: 0; padding: 10px; background: var(--surface-2); border-radius
 }
 .btn-desktop:hover { background: var(--surface); border-color: var(--accent); }
 
+.url-box { display: flex; gap: 6px; }
+.url-box input {
+  flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); font-size: 13px;
+}
+.url-box input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.url-box button {
+  padding: 7px 12px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  background: var(--accent); color: var(--accent-text); border-color: var(--accent);
+}
+
 /* Buttons & Toggles */
 .btn-accent { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 .view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; margin-left: 8px; }
