@@ -240,8 +240,8 @@ ipcMain.handle('dialog-open-file', async (event, options = {}) => {
     title: options.title || 'Chọn tệp tài liệu',
     properties: ['openFile', 'multiSelections'],
     filters: [
-      { name: 'Tất cả định dạng hỗ trợ', extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'html', 'htm', 'epub', 'rtf', 'txt', 'csv', 'tsv', 'json', 'png', 'jpg', 'jpeg', 'webp', 'bmp'] },
-      { name: 'Văn bản Office (Word, Excel, PowerPoint)', extensions: ['docx', 'xlsx', 'xls', 'pptx', 'ppt'] },
+      { name: 'Tất cả định dạng hỗ trợ', extensions: ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'pdf', 'html', 'htm', 'epub', 'rtf', 'txt', 'csv', 'tsv', 'json', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'mp3', 'wav', 'm4a'] },
+      { name: 'Văn bản Office (Word, Excel, PowerPoint)', extensions: ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'] },
       { name: 'Tài liệu PDF', extensions: ['pdf'] },
       { name: 'Hình ảnh scan & chụp', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'svg'] },
       { name: 'Mọi tệp (*.*)', extensions: ['*'] }
@@ -288,7 +288,7 @@ ipcMain.handle('fs-save-file', async (event, { filePath, content }) => {
 ipcMain.handle('fs-read-dir', async (event, dirPath) => {
   try {
     const files = fs.readdirSync(dirPath);
-    const validExts = new Set(['.docx', '.xlsx', '.xls', '.pptx', '.ppt', '.pdf', '.html', '.htm', '.epub', '.rtf', '.txt', '.csv', '.tsv', '.json', '.png', '.jpg', '.jpeg', '.webp', '.bmp']);
+    const validExts = new Set(['.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.pdf', '.html', '.htm', '.epub', '.rtf', '.txt', '.csv', '.tsv', '.json', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.mp3', '.wav', '.m4a']);
     const fullPaths = files
       .map(f => path.join(dirPath, f))
       .filter(p => {
