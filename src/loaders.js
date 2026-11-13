@@ -80,8 +80,10 @@ export function deskewCanvas(canvas) {
   const angle = estimateSkew(binarize(toGray(data, w, h), w, h), w, h);
   if (Math.abs(angle) < 0.3) return { canvas, angle: 0 };
   const rad = (-angle * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
   const out = document.createElement('canvas');
-  out.width = canvas.width; out.height = canvas.height;
+  out.width = Math.ceil(canvas.width * cos + canvas.height * sin);
+  out.height = Math.ceil(canvas.width * sin + canvas.height * cos);
   const ctx = out.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, out.width, out.height);

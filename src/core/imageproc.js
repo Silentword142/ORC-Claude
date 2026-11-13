@@ -73,6 +73,43 @@ export function binarize(gray, width, height, { windowSize, t = 0.15 } = {}) {
 }
 
 /**
+ * Cân bằng ánh sáng cục bộ cho ảnh chụp tài liệu (khử bóng đổ, nền tối)
+ * giúp Tesseract nhận dạng chữ và dấu tiếng Việt chính xác hơn.
+ */
+export function enhanceForOcr(gray, width, height) {
+  const win = Math.max(31, (Math.min(width, height) / 18) | 1);
+  const half = win >> 1;
+  const W = width + 1;
+  const integral = new Float64Array(W * (height + 1));
+  for (let y = 0; y < height; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < width; x++) {
+      rowSum += gray[y * width + x];
+      integral[(y + 1) * W + x + 1] = integral[y * W + x + 1] + rowSum;
+    }
+  }
+  const out = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const y0 = Math.max(0, y - half), y1 = Math.min(height - 1, y + half);
+    for (let x = 0; x < width; x++) {
+      const x0 = Math.max(0, x - half), x1 = Math.min(width - 1, x + half);
+      const count = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const s = integral[(y1 + 1) * W + x1 + 1] - integral[y0 * W + x1 + 1]
+        - integral[(y1 + 1) * W + x0] + integral[y0 * W + x0];
+      const bg = Math.max(15, s / count);
+      const v = gray[y * width + x];
+      if (v >= bg * 0.92) {
+        out[y * width + x] = 255;
+      } else {
+        const norm = (v / bg) * 240;
+        out[y * width + x] = norm < 0 ? 0 : norm > 255 ? 255 : norm | 0;
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Gán nhãn thành phần liên thông (union-find hai lượt).
  * Trả về { labels: Int32Array (0 = không thuộc), comps: [{id,x0,y0,x1,y1,area}] }
  */

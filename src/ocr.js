@@ -19,7 +19,7 @@ async function getWorker(langs) {
     gzip: true,
     logger: (m) => logger(m),
   });
-  await worker.setParameters({ preserve_interword_spaces: '1' });
+  await worker.setParameters({ preserve_interword_spaces: '1', user_defined_dpi: '300' });
   workerLangs = langs;
   return worker;
 }

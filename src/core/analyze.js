@@ -1,6 +1,6 @@
 // Luồng phân tích một trang: nhị phân hóa -> tìm đường kẻ -> OCR ->
 // bảng -> sơ đồ -> bảng không kẻ -> sắp xếp khối theo thứ tự đọc.
-import { toGray, binarize, median } from './imageproc.js';
+import { toGray, binarize, median, enhanceForOcr } from './imageproc.js';
 import { detectLines, detectRuledTables, detectBorderlessTables, fillCells, wordsToText } from './table.js';
 import { detectDiagram, outlineInside, outlineDistance, groupLabels } from './diagram.js';
 
@@ -37,7 +37,8 @@ export async function analyzePage(page, opts = {}) {
   let text = page.words ? page : null;
   if (!text) {
     progress('Nhận dạng chữ (OCR)…');
-    text = await opts.ocr({ width, height, gray: clean });
+    const ocrGray = enhanceForOcr(clean, width, height);
+    text = await opts.ocr({ width, height, gray: ocrGray });
   }
   const words = text.words.map((w) => ({ ...w, inTable: false, inShape: false, inDiagram: false }));
   const byRef = new Map(text.words.map((w, i) => [w, words[i]]));
