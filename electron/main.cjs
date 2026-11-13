@@ -63,7 +63,7 @@ function startMarkItDownService() {
     pythonProcess = spawn(resolved.cmd, resolved.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
     });
 
     pythonProcess.stdout.on('data', (data) => {
