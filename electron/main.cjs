@@ -5,8 +5,10 @@ const { spawn, execFile } = require('child_process');
 
 let mainWindow = null;
 let pythonProcess = null;
-let markItDownPort = 49152;
+let markItDownPort = 0;
 let isPythonReady = false;
+let isPythonStarting = false;
+let lastMarkItDownError = null;
 
 function findPython() {
   const isWin = process.platform === 'win32';
@@ -53,11 +55,17 @@ function resolveMarkItDownCommand(extraArgs = []) {
 }
 
 function startMarkItDownService() {
-  const resolved = resolveMarkItDownCommand(['serve', '-p', String(markItDownPort)]);
+  const resolved = resolveMarkItDownCommand(['serve', '-p', '0']);
   if (!resolved) {
-    console.warn('[MarkItDown] Không tìm thấy service hoặc script.');
+    lastMarkItDownError = 'Không tìm thấy engine MarkItDown trong gói ứng dụng.';
+    isPythonStarting = false;
+    console.warn('[MarkItDown]', lastMarkItDownError);
     return;
   }
+
+  isPythonStarting = true;
+  lastMarkItDownError = null;
+  let stderrBuf = '';
 
   try {
     pythonProcess = spawn(resolved.cmd, resolved.args, {
@@ -68,21 +76,40 @@ function startMarkItDownService() {
 
     pythonProcess.stdout.on('data', (data) => {
       const msg = data.toString();
-      if (msg.includes('MARKITDOWN_SERVER_READY')) {
+      const m = msg.match(/MARKITDOWN_SERVER_READY:(\d+)/);
+      if (m) {
+        markItDownPort = parseInt(m[1], 10);
         isPythonReady = true;
+        isPythonStarting = false;
+        lastMarkItDownError = null;
         console.log('[MarkItDown Server] Sẵn sàng tại cổng:', markItDownPort);
       }
     });
 
     pythonProcess.stderr.on('data', (data) => {
-      console.error('[MarkItDown Server Stderr]:', data.toString());
+      const s = data.toString();
+      stderrBuf = (stderrBuf + s).slice(-2000);
+      console.error('[MarkItDown Server Stderr]:', s);
+    });
+
+    pythonProcess.on('error', (err) => {
+      isPythonReady = false;
+      isPythonStarting = false;
+      lastMarkItDownError = err.message || 'Không thể chạy tiến trình MarkItDown';
+      console.error('[MarkItDown Server Error]:', err);
     });
 
     pythonProcess.on('exit', (code) => {
       console.log('[MarkItDown Server] Tiến trình kết thúc với mã:', code);
       isPythonReady = false;
+      isPythonStarting = false;
+      if (code !== 0 && code !== null) {
+        lastMarkItDownError = stderrBuf.trim() || `Tiến trình MarkItDown thoát với mã ${code}`;
+      }
     });
   } catch (err) {
+    isPythonStarting = false;
+    lastMarkItDownError = err.message;
     console.error('[MarkItDown Server] Không thể khởi động tiến trình MarkItDown:', err);
   }
 }
@@ -144,7 +171,12 @@ app.on('window-all-closed', () => {
 
 // IPC Handlers
 ipcMain.handle('markitdown-status', async () => {
-  return { ready: isPythonReady, port: markItDownPort };
+  return {
+    ready: isPythonReady,
+    starting: isPythonStarting,
+    port: markItDownPort,
+    error: lastMarkItDownError,
+  };
 });
 
 ipcMain.handle('markitdown-convert', async (event, filePath) => {

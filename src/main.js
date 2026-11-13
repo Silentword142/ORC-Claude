@@ -65,6 +65,8 @@ async function addFiles(files) {
   const engine = $('#optEngine').value;
   for (const file of files) {
     const kind = fileKind(file);
+    const resolvedPath = file.path || (isElectron && window.electronAPI?.getFilePath ? window.electronAPI.getFilePath(file) : '');
+    if (resolvedPath) file._diskPath = resolvedPath;
     try {
       // 1. Thử Microsoft MarkItDown trước nếu đang chọn MarkItDown hoặc Hybrid (với các định dạng Office/Doc/Text)
       if (engine === 'markitdown' || (engine === 'hybrid' && kind !== 'image')) {
@@ -74,7 +76,7 @@ async function addFiles(files) {
             id: uid(),
             type: 'doc',
             name: file.name,
-            filePath: file.path,
+            filePath: resolvedPath || file.path,
             doc: {
               text: mkRes.markdown,
               markdown: mkRes.markdown,
@@ -184,13 +186,26 @@ const syncKey = () => store.set('orc.apiKey', $('#rememberKey').checked && $('#a
 $('#apiKey').addEventListener('change', syncKey);
 $('#rememberKey').addEventListener('change', syncKey);
 
+let mkPollTimer = null;
 async function checkMarkItDownStatus() {
   const el = $('#markitdownStatus');
   if (!el) return;
   if (isElectron && window.electronAPI?.checkMarkItDownStatus) {
     const s = await window.electronAPI.checkMarkItDownStatus();
-    el.textContent = s.ready ? '⚡ Sẵn sàng: Microsoft MarkItDown Engine (Desktop)' : 'Đang khởi động tiến trình Python MarkItDown…';
-    el.className = 'engine-status' + (s.ready ? '' : ' err');
+    if (s.ready) {
+      el.textContent = '⚡ Sẵn sàng: Microsoft MarkItDown Engine (Desktop)';
+      el.className = 'engine-status';
+      if (mkPollTimer) { clearTimeout(mkPollTimer); mkPollTimer = null; }
+    } else if (s.error) {
+      el.textContent = `⚠️ MarkItDown lỗi: ${s.error}`;
+      el.className = 'engine-status err';
+      if (mkPollTimer) { clearTimeout(mkPollTimer); mkPollTimer = null; }
+    } else {
+      el.textContent = '⏳ Đang khởi động Microsoft MarkItDown…';
+      el.className = 'engine-status';
+      if (mkPollTimer) clearTimeout(mkPollTimer);
+      mkPollTimer = setTimeout(checkMarkItDownStatus, 800);
+    }
   } else {
     try {
       const resp = await fetch('http://127.0.0.1:49152/health');

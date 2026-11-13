@@ -48,6 +48,8 @@ jobs:
             scripts/markitdown_service.py
           New-Item -ItemType Directory -Force -Path resources/markitdown | Out-Null
           Copy-Item -Recurse -Force dist/markitdown_service/* resources/markitdown/
+          .\resources\markitdown\markitdown_service.exe convert README.md | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "markitdown_service.exe smoke test failed" }
 
       - name: Install Node dependencies
         run: npm ci

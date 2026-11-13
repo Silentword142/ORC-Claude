@@ -154,11 +154,14 @@ function textItemsToWords(items, viewport) {
 /** DOCX: chuyển sang HTML (giữ bảng) + OCR các ảnh nhúng */
 /** Gọi Microsoft MarkItDown thông qua Electron IPC hoặc local HTTP service */
 export async function convertWithMarkItDown(file) {
-  const filePath = file.path || file.name;
+  let filePath = file._diskPath || file.path || '';
+  if (!filePath && typeof window !== 'undefined' && window.electronAPI?.getFilePath) {
+    filePath = window.electronAPI.getFilePath(file);
+  }
   // 1. Thử qua Electron API nếu có
   if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.convertWithMarkItDown) {
-    if (file.path) {
-      const res = await window.electronAPI.convertWithMarkItDown(file.path);
+    if (filePath) {
+      const res = await window.electronAPI.convertWithMarkItDown(filePath);
       if (res && res.success) return res;
       if (res && res.error) throw new Error(res.error);
     }

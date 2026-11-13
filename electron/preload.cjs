@@ -1,7 +1,14 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
+  getFilePath: (file) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return file?.path || '';
+    }
+  },
   convertWithMarkItDown: (filePath) => ipcRenderer.invoke('markitdown-convert', filePath),
   checkMarkItDownStatus: () => ipcRenderer.invoke('markitdown-status'),
   openFileDialog: (options) => ipcRenderer.invoke('dialog-open-file', options),

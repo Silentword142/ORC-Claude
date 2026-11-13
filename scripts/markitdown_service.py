@@ -109,10 +109,11 @@ class MarkItDownHandler(BaseHTTPRequestHandler):
         # Ẩn bớt log request thông thường
         pass
 
-def run_server(port=49152):
+def run_server(port=0):
     server_address = ("127.0.0.1", port)
     httpd = HTTPServer(server_address, MarkItDownHandler)
-    print(f"MARKITDOWN_SERVER_READY:{port}", flush=True)
+    actual_port = httpd.server_port
+    print(f"MARKITDOWN_SERVER_READY:{actual_port}", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
